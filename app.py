@@ -34,12 +34,14 @@ SETUP_TIMES = [
 # ============================================================
 
 def find_column(df, possible_names):
+
     lower_map = {
         str(c).strip().lower(): c
         for c in df.columns
     }
 
     for name in possible_names:
+
         if name.lower() in lower_map:
             return lower_map[name.lower()]
 
@@ -60,6 +62,7 @@ def normalize_datetime(df):
     )
 
     if dt_col is None:
+
         raise ValueError(
             "Datetime column not found. Expected a column such as datetime."
         )
@@ -71,7 +74,10 @@ def normalize_datetime(df):
     )
 
     if parsed.isna().any():
-        bad_count = int(parsed.isna().sum())
+
+        bad_count = int(
+            parsed.isna().sum()
+        )
 
         raise ValueError(
             f"Datetime validation failed: "
@@ -79,6 +85,7 @@ def normalize_datetime(df):
         )
 
     df = df.copy()
+
     df["datetime"] = parsed
 
     return df
@@ -106,6 +113,7 @@ def validate_ohlc(df):
         missing.append("close")
 
     if missing:
+
         raise ValueError(
             "Missing OHLC columns: "
             + ", ".join(missing)
@@ -146,6 +154,454 @@ def validate_ohlc(df):
 
 
 # ============================================================
+# VALID PULLBACK DETECTION
+# ============================================================
+
+def detect_valid_pullbacks(df):
+
+    rows = []
+
+    n = len(df)
+
+    if n < 3:
+        return pd.DataFrame()
+
+    # --------------------------------------------------------
+    # IMPORTANT INTERPRETATION
+    #
+    # Bullish market:
+    # - Pullback consists of bearish candles.
+    # - Reference = highest bullish candle immediately
+    #   before the pullback sequence.
+    # - Reference Low must be grabbed.
+    # - After grab, reference High must CLOSE above.
+    #
+    # Bearish market:
+    # - Pullback consists of bullish candles.
+    # - Reference = lowest bearish candle immediately
+    #   before the pullback sequence.
+    # - Reference High must be grabbed.
+    # - After grab, reference Low must CLOSE below.
+    #
+    # "Grab" requires only price to go beyond the level.
+    # Close is NOT required for the grab.
+    #
+    # Break requires CLOSE beyond the level.
+    # --------------------------------------------------------
+
+    i = 1
+
+    while i < n:
+
+        # ====================================================
+        # BULLISH MARKET
+        # ====================================================
+
+        # A bullish candle can be the reference candle.
+        if df["close"].iloc[i] > df["open"].iloc[i]:
+
+            reference_index = i
+
+            reference_high = float(
+                df["high"].iloc[i]
+            )
+
+            reference_low = float(
+                df["low"].iloc[i]
+            )
+
+            # ------------------------------------------------
+            # Look for bearish pullback candles after the
+            # bullish reference candle.
+            # ------------------------------------------------
+
+            j = i + 1
+
+            pullback_indices = []
+
+            low_grabbed = False
+
+            while j < n:
+
+                candle_open = float(
+                    df["open"].iloc[j]
+                )
+
+                candle_high = float(
+                    df["high"].iloc[j]
+                )
+
+                candle_low = float(
+                    df["low"].iloc[j]
+                )
+
+                candle_close = float(
+                    df["close"].iloc[j]
+                )
+
+                # --------------------------------------------
+                # A bullish candle before the pullback begins
+                # means the previous reference is not the
+                # immediate pullback reference.
+                #
+                # Continue scanning for the next possible
+                # bullish reference.
+                # --------------------------------------------
+
+                if candle_close > candle_open:
+
+                    break
+
+                # Candle is bearish.
+
+                pullback_indices.append(j)
+
+                # --------------------------------------------
+                # Grab of reference LOW.
+                #
+                # Only price going below the low is required.
+                # Wick OR close below = valid grab.
+                # --------------------------------------------
+
+                if candle_low < reference_low:
+
+                    low_grabbed = True
+
+                # --------------------------------------------
+                # After LOW is grabbed, reference HIGH must
+                # be BROKEN by CLOSE.
+                # --------------------------------------------
+
+                if (
+                    low_grabbed
+                    and candle_close > reference_high
+                ):
+
+                    c1_index = reference_index
+
+                    c2_index = (
+                        pullback_indices[0]
+                        if len(pullback_indices) >= 1
+                        else j
+                    )
+
+                    # ------------------------------------------------
+                    # C2 for manipulation is the candle that actually
+                    # grabbed the reference low.
+                    #
+                    # If the grab happened later in the pullback,
+                    # use that actual grab candle.
+                    # ------------------------------------------------
+
+                    grab_index = None
+
+                    for k in pullback_indices:
+
+                        if (
+                            float(df["low"].iloc[k])
+                            < reference_low
+                        ):
+
+                            grab_index = k
+                            break
+
+                    if grab_index is None:
+                        grab_index = c2_index
+
+                    c3_index = j
+
+                    rows.append(
+                        {
+                            "datetime": df["datetime"].iloc[c3_index],
+
+                            "direction": "Bullish",
+
+                            "reference_bar_index": int(
+                                reference_index
+                            ),
+
+                            "reference_datetime": df[
+                                "datetime"
+                            ].iloc[reference_index],
+
+                            "reference_high": reference_high,
+
+                            "reference_low": reference_low,
+
+                            "c1_bar_index": int(
+                                c1_index
+                            ),
+
+                            "c2_bar_index": int(
+                                grab_index
+                            ),
+
+                            "c3_bar_index": int(
+                                c3_index
+                            ),
+
+                            "c1_high": float(
+                                df["high"].iloc[c1_index]
+                            ),
+
+                            "c1_low": float(
+                                df["low"].iloc[c1_index]
+                            ),
+
+                            "c2_high": float(
+                                df["high"].iloc[grab_index]
+                            ),
+
+                            "c2_low": float(
+                                df["low"].iloc[grab_index]
+                            ),
+
+                            "c2_close": float(
+                                df["close"].iloc[grab_index]
+                            ),
+
+                            "c3_close": float(
+                                df["close"].iloc[c3_index]
+                            ),
+
+                            # ----------------------------------------
+                            # Manipulation point
+                            # ----------------------------------------
+
+                            "manipulation_point_type":
+                                "Swing Low",
+
+                            "manipulation_point_price":
+                                float(
+                                    df["low"].iloc[grab_index]
+                                ),
+
+                            "manipulation_point_bar_index":
+                                int(grab_index),
+
+                            "manipulation_leg":
+                                "High → Low",
+
+                            "pullback_confirmed": True
+                        }
+                    )
+
+                    # Move forward after confirmation so the same
+                    # pattern is not repeatedly counted.
+                    i = j
+
+                    break
+
+                j += 1
+
+        # ====================================================
+        # BEARISH MARKET
+        # ====================================================
+
+        if (
+            i < n
+            and df["close"].iloc[i]
+            < df["open"].iloc[i]
+        ):
+
+            reference_index = i
+
+            reference_high = float(
+                df["high"].iloc[i]
+            )
+
+            reference_low = float(
+                df["low"].iloc[i]
+            )
+
+            j = i + 1
+
+            pullback_indices = []
+
+            high_grabbed = False
+
+            while j < n:
+
+                candle_open = float(
+                    df["open"].iloc[j]
+                )
+
+                candle_high = float(
+                    df["high"].iloc[j]
+                )
+
+                candle_low = float(
+                    df["low"].iloc[j]
+                )
+
+                candle_close = float(
+                    df["close"].iloc[j]
+                )
+
+                # Another bearish candle means the previous
+                # reference is no longer the immediate
+                # pullback reference.
+
+                if candle_close < candle_open:
+
+                    break
+
+                # Candle is bullish.
+
+                pullback_indices.append(j)
+
+                # --------------------------------------------
+                # Grab of reference HIGH.
+                #
+                # Price only needs to go above the high.
+                # Wick OR close above = valid grab.
+                # --------------------------------------------
+
+                if candle_high > reference_high:
+
+                    high_grabbed = True
+
+                # --------------------------------------------
+                # After HIGH is grabbed, reference LOW must
+                # be broken by CLOSE.
+                # --------------------------------------------
+
+                if (
+                    high_grabbed
+                    and candle_close < reference_low
+                ):
+
+                    c1_index = reference_index
+
+                    c2_index = (
+                        pullback_indices[0]
+                        if len(pullback_indices) >= 1
+                        else j
+                    )
+
+                    # ------------------------------------------------
+                    # Actual candle that grabbed reference HIGH.
+                    # ------------------------------------------------
+
+                    grab_index = None
+
+                    for k in pullback_indices:
+
+                        if (
+                            float(df["high"].iloc[k])
+                            > reference_high
+                        ):
+
+                            grab_index = k
+                            break
+
+                    if grab_index is None:
+                        grab_index = c2_index
+
+                    c3_index = j
+
+                    rows.append(
+                        {
+                            "datetime": df["datetime"].iloc[c3_index],
+
+                            "direction": "Bearish",
+
+                            "reference_bar_index": int(
+                                reference_index
+                            ),
+
+                            "reference_datetime": df[
+                                "datetime"
+                            ].iloc[reference_index],
+
+                            "reference_high": reference_high,
+
+                            "reference_low": reference_low,
+
+                            "c1_bar_index": int(
+                                c1_index
+                            ),
+
+                            "c2_bar_index": int(
+                                grab_index
+                            ),
+
+                            "c3_bar_index": int(
+                                c3_index
+                            ),
+
+                            "c1_high": float(
+                                df["high"].iloc[c1_index]
+                            ),
+
+                            "c1_low": float(
+                                df["low"].iloc[c1_index]
+                            ),
+
+                            "c2_high": float(
+                                df["high"].iloc[grab_index]
+                            ),
+
+                            "c2_low": float(
+                                df["low"].iloc[grab_index]
+                            ),
+
+                            "c2_close": float(
+                                df["close"].iloc[grab_index]
+                            ),
+
+                            "c3_close": float(
+                                df["close"].iloc[c3_index]
+                            ),
+
+                            "manipulation_point_type":
+                                "Swing High",
+
+                            "manipulation_point_price":
+                                float(
+                                    df["high"].iloc[grab_index]
+                                ),
+
+                            "manipulation_point_bar_index":
+                                int(grab_index),
+
+                            "manipulation_leg":
+                                "Low → High",
+
+                            "pullback_confirmed": True
+                        }
+                    )
+
+                    i = j
+
+                    break
+
+                j += 1
+
+        i += 1
+
+    if not rows:
+        return pd.DataFrame()
+
+    result = pd.DataFrame(rows)
+
+    result = (
+        result
+        .sort_values("c3_bar_index")
+        .drop_duplicates(
+            subset=[
+                "c3_bar_index",
+                "direction"
+            ],
+            keep="first"
+        )
+        .reset_index(drop=True)
+    )
+
+    return result
+
+
+# ============================================================
 # FILE UPLOAD
 # ============================================================
 
@@ -157,7 +613,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is None:
-    st.info("Please upload your XAUUSD 1-minute CSV.")
+
+    st.info(
+        "Please upload your XAUUSD 1-minute CSV."
+    )
+
     st.stop()
 
 
@@ -167,9 +627,13 @@ if uploaded_file is None:
 
 try:
 
-    df = pd.read_csv(uploaded_file)
+    df = pd.read_csv(
+        uploaded_file
+    )
 
-    st.success("CSV loaded")
+    st.success(
+        "CSV loaded"
+    )
 
 except Exception as e:
 
@@ -186,7 +650,9 @@ except Exception as e:
 
 try:
 
-    df = validate_ohlc(df)
+    df = validate_ohlc(
+        df
+    )
 
     st.success(
         "OHLC validation complete"
@@ -207,7 +673,9 @@ except Exception as e:
 
 try:
 
-    df = normalize_datetime(df)
+    df = normalize_datetime(
+        df
+    )
 
     st.success(
         "Datetime validation complete"
@@ -271,7 +739,9 @@ with c1:
 
 with c2:
 
-    start_time = df["datetime"].iloc[0]
+    start_time = df[
+        "datetime"
+    ].iloc[0]
 
     st.metric(
         "Start",
@@ -282,7 +752,9 @@ with c2:
 
 with c3:
 
-    end_time = df["datetime"].iloc[-1]
+    end_time = df[
+        "datetime"
+    ].iloc[-1]
 
     st.metric(
         "End",
@@ -332,213 +804,48 @@ st.header(
 )
 
 st.caption(
-    "Bullish: C2 sweeps C1 Low without "
-    "closing below it, then C3 closes above C1 High."
+    "Bullish: highest bullish reference candle → "
+    "its Low is grabbed → after the grab its High "
+    "must be broken by candle CLOSE."
 )
 
 st.caption(
-    "Bearish: C2 sweeps C1 High without "
-    "closing above it, then C3 closes below C1 Low."
+    "Bearish: lowest bearish reference candle → "
+    "its High is grabbed → after the grab its Low "
+    "must be broken by candle CLOSE."
 )
 
 
-# ------------------------------------------------------------
-# Candle arrays
-# ------------------------------------------------------------
-
-c1_high = df["high"].shift(2)
-c1_low = df["low"].shift(2)
-
-c2_high = df["high"].shift(1)
-c2_low = df["low"].shift(1)
-c2_close = df["close"].shift(1)
-
-c3_high = df["high"]
-c3_low = df["low"]
-c3_close = df["close"]
-
-
-# ------------------------------------------------------------
-# EXACT BULLISH RULE
-# ------------------------------------------------------------
-
-bullish_mask = (
-    (c2_low < c1_low)
-    &
-    (c2_close >= c1_low)
-    &
-    (c3_close > c1_high)
+pullbacks = detect_valid_pullbacks(
+    df
 )
 
 
-# ------------------------------------------------------------
-# EXACT BEARISH RULE
-# ------------------------------------------------------------
+if pullbacks.empty:
 
-bearish_mask = (
-    (c2_high > c1_high)
-    &
-    (c2_close <= c1_high)
-    &
-    (c3_close < c1_low)
-)
+    total_pullbacks = 0
+    bullish_count = 0
+    bearish_count = 0
 
+else:
 
-# ============================================================
-# BUILD BULLISH SIGNAL TABLE
-# ============================================================
+    total_pullbacks = len(
+        pullbacks
+    )
 
-bullish_signals = df.loc[
-    bullish_mask
-].copy()
+    bullish_count = int(
+        (
+            pullbacks["direction"]
+            == "Bullish"
+        ).sum()
+    )
 
-bullish_signals["direction"] = (
-    "Bullish"
-)
-
-bullish_signals["c1_bar_index"] = (
-    bullish_signals["bar_index"] - 2
-)
-
-bullish_signals["c2_bar_index"] = (
-    bullish_signals["bar_index"] - 1
-)
-
-bullish_signals["c3_bar_index"] = (
-    bullish_signals["bar_index"]
-)
-
-bullish_signals["c1_high"] = (
-    df["high"]
-    .shift(2)
-    .loc[bullish_mask]
-)
-
-bullish_signals["c1_low"] = (
-    df["low"]
-    .shift(2)
-    .loc[bullish_mask]
-)
-
-bullish_signals["c2_high"] = (
-    df["high"]
-    .shift(1)
-    .loc[bullish_mask]
-)
-
-bullish_signals["c2_low"] = (
-    df["low"]
-    .shift(1)
-    .loc[bullish_mask]
-)
-
-bullish_signals["c2_close"] = (
-    df["close"]
-    .shift(1)
-    .loc[bullish_mask]
-)
-
-bullish_signals["c3_close"] = (
-    df["close"]
-    .loc[bullish_mask]
-)
-
-
-# ============================================================
-# BUILD BEARISH SIGNAL TABLE
-# ============================================================
-
-bearish_signals = df.loc[
-    bearish_mask
-].copy()
-
-bearish_signals["direction"] = (
-    "Bearish"
-)
-
-bearish_signals["c1_bar_index"] = (
-    bearish_signals["bar_index"] - 2
-)
-
-bearish_signals["c2_bar_index"] = (
-    bearish_signals["bar_index"] - 1
-)
-
-bearish_signals["c3_bar_index"] = (
-    bearish_signals["bar_index"]
-)
-
-bearish_signals["c1_high"] = (
-    df["high"]
-    .shift(2)
-    .loc[bearish_mask]
-)
-
-bearish_signals["c1_low"] = (
-    df["low"]
-    .shift(2)
-    .loc[bearish_mask]
-)
-
-bearish_signals["c2_high"] = (
-    df["high"]
-    .shift(1)
-    .loc[bearish_mask]
-)
-
-bearish_signals["c2_low"] = (
-    df["low"]
-    .shift(1)
-    .loc[bearish_mask]
-)
-
-bearish_signals["c2_close"] = (
-    df["close"]
-    .shift(1)
-    .loc[bearish_mask]
-)
-
-bearish_signals["c3_close"] = (
-    df["close"]
-    .loc[bearish_mask]
-)
-
-
-# ============================================================
-# COMBINE SIGNALS
-# ============================================================
-
-pullbacks = pd.concat(
-    [
-        bullish_signals,
-        bearish_signals
-    ],
-    axis=0,
-    ignore_index=True
-)
-
-pullbacks = (
-    pullbacks
-    .sort_values("bar_index")
-    .reset_index(drop=True)
-)
-
-
-# ============================================================
-# PULLBACK SUMMARY
-# ============================================================
-
-total_pullbacks = len(
-    pullbacks
-)
-
-bullish_count = len(
-    bullish_signals
-)
-
-bearish_count = len(
-    bearish_signals
-)
+    bearish_count = int(
+        (
+            pullbacks["direction"]
+            == "Bearish"
+        ).sum()
+    )
 
 
 m1, m2, m3 = st.columns(3)
@@ -573,32 +880,46 @@ with st.expander(
     "📋 View Valid Pullbacks"
 ):
 
-    display_columns = [
-        "datetime",
-        "direction",
-        "c1_bar_index",
-        "c2_bar_index",
-        "c3_bar_index",
-        "c1_high",
-        "c1_low",
-        "c2_high",
-        "c2_low",
-        "c2_close",
-        "c3_close"
-    ]
+    if not pullbacks.empty:
 
-    available_columns = [
-        c
-        for c in display_columns
-        if c in pullbacks.columns
-    ]
+        display_columns = [
+            "datetime",
+            "direction",
+            "reference_bar_index",
+            "reference_datetime",
+            "reference_high",
+            "reference_low",
+            "c1_bar_index",
+            "c2_bar_index",
+            "c3_bar_index",
+            "c2_high",
+            "c2_low",
+            "c2_close",
+            "c3_close",
+            "manipulation_point_type",
+            "manipulation_point_price",
+            "manipulation_point_bar_index",
+            "manipulation_leg"
+        ]
 
-    st.dataframe(
-        pullbacks[
-            available_columns
-        ].head(100),
-        use_container_width=True
-    )
+        available_columns = [
+            c
+            for c in display_columns
+            if c in pullbacks.columns
+        ]
+
+        st.dataframe(
+            pullbacks[
+                available_columns
+            ].head(100),
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "No valid pullbacks detected."
+        )
 
 
 # ============================================================
@@ -676,7 +997,9 @@ with st.expander(
     ]
 
     st.dataframe(
-        setups[setup_display],
+        setups[
+            setup_display
+        ],
         use_container_width=True
     )
 
@@ -698,67 +1021,196 @@ st.caption(
 )
 
 st.caption(
-    "यहाँ valid pullback manipulation leg को "
-    "confirm/complete करता है."
+    "Valid pullback confirm होने के बाद "
+    "उसके manipulation point को आगे AOX के लिए use किया जाएगा."
 )
 
 
 after_setup_rows = []
 
 
-# ------------------------------------------------------------
-# Associate each setup with FIRST pullback after setup
-# ------------------------------------------------------------
-
 for _, setup in setups.iterrows():
 
-    setup_date = setup["ny_date"]
-
-    setup_bar_index = int(
-        setup["bar_index"]
-    )
-
-    setup_time = setup["setup_time"]
-
-    candidates = pullbacks[
-        (pullbacks["ny_date"] == setup_date)
-        &
-        (pullbacks["bar_index"] > setup_bar_index)
+    setup_date = setup[
+        "ny_date"
     ]
 
-    if candidates.empty:
+    setup_bar_index = int(
+        setup[
+            "bar_index"
+        ]
+    )
+
+    setup_time = setup[
+        "setup_time"
+    ]
+
+    if pullbacks.empty:
 
         after_setup_rows.append(
             {
-                "setup_id": setup["setup_id"],
-                "setup_date": setup_date,
-                "setup_time": setup_time,
-                "setup_bar_index": setup_bar_index,
-                "pullback_found": False,
-                "pullback_direction": None,
-                "pullback_bar_index": None,
-                "pullback_datetime": None
+                "setup_id":
+                    setup["setup_id"],
+
+                "setup_date":
+                    setup_date,
+
+                "setup_time":
+                    setup_time,
+
+                "setup_bar_index":
+                    setup_bar_index,
+
+                "pullback_found":
+                    False,
+
+                "pullback_direction":
+                    None,
+
+                "pullback_bar_index":
+                    None,
+
+                "pullback_datetime":
+                    None,
+
+                "manipulation_point_type":
+                    None,
+
+                "manipulation_point_price":
+                    None,
+
+                "manipulation_point_bar_index":
+                    None,
+
+                "manipulation_leg":
+                    None
             }
         )
 
         continue
 
 
-    first_pullback = candidates.iloc[0]
+    candidates = pullbacks[
+        (pullbacks["ny_date"] == setup_date)
+        &
+        (
+            pullbacks["c3_bar_index"]
+            > setup_bar_index
+        )
+    ]
+
+
+    if candidates.empty:
+
+        after_setup_rows.append(
+            {
+                "setup_id":
+                    setup["setup_id"],
+
+                "setup_date":
+                    setup_date,
+
+                "setup_time":
+                    setup_time,
+
+                "setup_bar_index":
+                    setup_bar_index,
+
+                "pullback_found":
+                    False,
+
+                "pullback_direction":
+                    None,
+
+                "pullback_bar_index":
+                    None,
+
+                "pullback_datetime":
+                    None,
+
+                "manipulation_point_type":
+                    None,
+
+                "manipulation_point_price":
+                    None,
+
+                "manipulation_point_bar_index":
+                    None,
+
+                "manipulation_leg":
+                    None
+            }
+        )
+
+        continue
+
+
+    first_pullback = (
+        candidates
+        .sort_values(
+            "c3_bar_index"
+        )
+        .iloc[0]
+    )
 
 
     after_setup_rows.append(
         {
-            "setup_id": setup["setup_id"],
-            "setup_date": setup_date,
-            "setup_time": setup_time,
-            "setup_bar_index": setup_bar_index,
-            "pullback_found": True,
-            "pullback_direction": first_pullback["direction"],
-            "pullback_bar_index": int(
-                first_pullback["bar_index"]
-            ),
-            "pullback_datetime": first_pullback["datetime"]
+            "setup_id":
+                setup["setup_id"],
+
+            "setup_date":
+                setup_date,
+
+            "setup_time":
+                setup_time,
+
+            "setup_bar_index":
+                setup_bar_index,
+
+            "pullback_found":
+                True,
+
+            "pullback_direction":
+                first_pullback[
+                    "direction"
+                ],
+
+            "pullback_bar_index":
+                int(
+                    first_pullback[
+                        "c3_bar_index"
+                    ]
+                ),
+
+            "pullback_datetime":
+                first_pullback[
+                    "datetime"
+                ],
+
+            "manipulation_point_type":
+                first_pullback[
+                    "manipulation_point_type"
+                ],
+
+            "manipulation_point_price":
+                float(
+                    first_pullback[
+                        "manipulation_point_price"
+                    ]
+                ),
+
+            "manipulation_point_bar_index":
+                int(
+                    first_pullback[
+                        "manipulation_point_bar_index"
+                    ]
+                ),
+
+            "manipulation_leg":
+                first_pullback[
+                    "manipulation_leg"
+                ]
         }
     )
 
@@ -810,7 +1262,7 @@ if len(after_setup) > 0:
 
 
     with st.expander(
-        "📋 View Setup → Pullback Mapping"
+        "📋 View Setup → Pullback → Manipulation Mapping"
     ):
 
         st.dataframe(
@@ -831,18 +1283,14 @@ st.header(
 
 st.caption(
     "Swing High = बीच वाली candle का High "
-    "उसकी left और right candle के High से बड़ा."
+    "left और right candle के High से बड़ा."
 )
 
 st.caption(
     "Swing Low = बीच वाली candle का Low "
-    "उसकी left और right candle के Low से छोटा."
+    "left और right candle के Low से छोटा."
 )
 
-
-# ------------------------------------------------------------
-# Confirmed swing definitions
-# ------------------------------------------------------------
 
 df["swing_high"] = (
     (df["high"] > df["high"].shift(1))
@@ -884,428 +1332,109 @@ with s2:
 
 
 # ============================================================
-# LEFT-SIDE MANIPULATION
+# MANIPULATION MAPPING
 # ============================================================
 
 st.divider()
 
 st.header(
-    "🧭 LEFT-SIDE Manipulation Detection"
+    "🧭 LEFT-SIDE Manipulation"
 )
 
 st.caption(
-    "Setup → latest relevant swing pair → "
-    "valid pullback confirmation."
+    "Setup के बाद पहला valid pullback ही "
+    "manipulation leg को confirm करता है."
 )
 
 st.caption(
-    "Bullish = latest Swing High के बाद latest Swing Low → High → Low"
+    "Bullish → C2 का LOW = Manipulation Swing Low"
 )
 
 st.caption(
-    "Bearish = latest Swing Low के बाद latest Swing High → Low → High"
+    "Bearish → C2 का HIGH = Manipulation Swing High"
 )
 
 
 manipulation_rows = []
 
 
-# ============================================================
-# PROCESS EACH SETUP
-# ============================================================
-
-for _, setup in setups.iterrows():
-
-    setup_id = int(
-        setup["setup_id"]
-    )
-
-    setup_date = setup["ny_date"]
-
-    setup_time = setup["setup_time"]
-
-    setup_bar_index = int(
-        setup["bar_index"]
-    )
-
-
-    # --------------------------------------------------------
-    # Find associated pullback
-    # --------------------------------------------------------
-
-    setup_pullback = after_setup[
-        after_setup["setup_id"] == setup_id
-    ]
-
-
-    if setup_pullback.empty:
-
-        manipulation_rows.append(
-            {
-                "setup_id": setup_id,
-                "setup_date": setup_date,
-                "setup_time": setup_time,
-                "direction": None,
-                "pullback_bar_index": None,
-                "swing_1_type": None,
-                "swing_1_bar_index": None,
-                "swing_1_price": None,
-                "swing_2_type": None,
-                "swing_2_bar_index": None,
-                "swing_2_price": None,
-                "manipulation_leg": None,
-                "manipulation_found": False
-            }
-        )
-
-        continue
-
-
-    pullback_info = setup_pullback.iloc[0]
-
+for _, row in after_setup.iterrows():
 
     if not bool(
-        pullback_info["pullback_found"]
+        row["pullback_found"]
     ):
 
         manipulation_rows.append(
             {
-                "setup_id": setup_id,
-                "setup_date": setup_date,
-                "setup_time": setup_time,
-                "direction": None,
-                "pullback_bar_index": None,
-                "swing_1_type": None,
-                "swing_1_bar_index": None,
-                "swing_1_price": None,
-                "swing_2_type": None,
-                "swing_2_bar_index": None,
-                "swing_2_price": None,
-                "manipulation_leg": None,
-                "manipulation_found": False
+                "setup_id":
+                    row["setup_id"],
+
+                "setup_date":
+                    row["setup_date"],
+
+                "setup_time":
+                    row["setup_time"],
+
+                "direction":
+                    None,
+
+                "pullback_bar_index":
+                    None,
+
+                "manipulation_point_type":
+                    None,
+
+                "manipulation_point_bar_index":
+                    None,
+
+                "manipulation_point_price":
+                    None,
+
+                "manipulation_leg":
+                    None,
+
+                "manipulation_found":
+                    False
             }
         )
 
         continue
 
 
-    direction = (
-        pullback_info[
-            "pullback_direction"
-        ]
+    manipulation_rows.append(
+        {
+            "setup_id":
+                row["setup_id"],
+
+            "setup_date":
+                row["setup_date"],
+
+            "setup_time":
+                row["setup_time"],
+
+            "direction":
+                row["pullback_direction"],
+
+            "pullback_bar_index":
+                row["pullback_bar_index"],
+
+            "manipulation_point_type":
+                row["manipulation_point_type"],
+
+            "manipulation_point_bar_index":
+                row["manipulation_point_bar_index"],
+
+            "manipulation_point_price":
+                row["manipulation_point_price"],
+
+            "manipulation_leg":
+                row["manipulation_leg"],
+
+            "manipulation_found":
+                True
+        }
     )
 
-    pullback_bar_index = int(
-        pullback_info[
-            "pullback_bar_index"
-        ]
-    )
-
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # A swing needs a candle on its right.
-    #
-    # Therefore only swings whose right-side confirmation
-    # candle has already occurred before the pullback
-    # confirmation are eligible.
-    #
-    # Swing center <= pullback_bar_index - 2
-    # --------------------------------------------------------
-
-    eligible_end = (
-        pullback_bar_index - 2
-    )
-
-
-    if eligible_end <= setup_bar_index:
-
-        manipulation_rows.append(
-            {
-                "setup_id": setup_id,
-                "setup_date": setup_date,
-                "setup_time": setup_time,
-                "direction": direction,
-                "pullback_bar_index": pullback_bar_index,
-                "swing_1_type": None,
-                "swing_1_bar_index": None,
-                "swing_1_price": None,
-                "swing_2_type": None,
-                "swing_2_bar_index": None,
-                "swing_2_price": None,
-                "manipulation_leg": None,
-                "manipulation_found": False
-            }
-        )
-
-        continue
-
-
-    swing_window = df[
-        (df["bar_index"] > setup_bar_index)
-        &
-        (df["bar_index"] <= eligible_end)
-        &
-        (
-            df["swing_high"]
-            |
-            df["swing_low"]
-        )
-    ].copy()
-
-
-    # --------------------------------------------------------
-    # BULLISH:
-    # Latest Swing High
-    # followed by
-    # Latest Swing Low
-    # --------------------------------------------------------
-
-    if direction == "Bullish":
-
-        swing_highs = swing_window[
-            swing_window["swing_high"]
-        ]
-
-        if swing_highs.empty:
-
-            manipulation_rows.append(
-                {
-                    "setup_id": setup_id,
-                    "setup_date": setup_date,
-                    "setup_time": setup_time,
-                    "direction": direction,
-                    "pullback_bar_index": pullback_bar_index,
-                    "swing_1_type": None,
-                    "swing_1_bar_index": None,
-                    "swing_1_price": None,
-                    "swing_2_type": None,
-                    "swing_2_bar_index": None,
-                    "swing_2_price": None,
-                    "manipulation_leg": None,
-                    "manipulation_found": False
-                }
-            )
-
-            continue
-
-
-        latest_high = (
-            swing_highs
-            .sort_values("bar_index")
-            .iloc[-1]
-        )
-
-
-        swing_lows_after_high = swing_window[
-            (swing_window["swing_low"])
-            &
-            (
-                swing_window["bar_index"]
-                > int(latest_high["bar_index"])
-            )
-        ]
-
-
-        if swing_lows_after_high.empty:
-
-            manipulation_rows.append(
-                {
-                    "setup_id": setup_id,
-                    "setup_date": setup_date,
-                    "setup_time": setup_time,
-                    "direction": direction,
-                    "pullback_bar_index": pullback_bar_index,
-                    "swing_1_type": "Swing High",
-                    "swing_1_bar_index": int(
-                        latest_high["bar_index"]
-                    ),
-                    "swing_1_price": float(
-                        latest_high["high"]
-                    ),
-                    "swing_2_type": None,
-                    "swing_2_bar_index": None,
-                    "swing_2_price": None,
-                    "manipulation_leg": None,
-                    "manipulation_found": False
-                }
-            )
-
-            continue
-
-
-        latest_low = (
-            swing_lows_after_high
-            .sort_values("bar_index")
-            .iloc[-1]
-        )
-
-
-        manipulation_rows.append(
-            {
-                "setup_id": setup_id,
-                "setup_date": setup_date,
-                "setup_time": setup_time,
-                "direction": direction,
-                "pullback_bar_index": pullback_bar_index,
-                "swing_1_type": "Swing High",
-                "swing_1_bar_index": int(
-                    latest_high["bar_index"]
-                ),
-                "swing_1_price": float(
-                    latest_high["high"]
-                ),
-                "swing_2_type": "Swing Low",
-                "swing_2_bar_index": int(
-                    latest_low["bar_index"]
-                ),
-                "swing_2_price": float(
-                    latest_low["low"]
-                ),
-                "manipulation_leg": "High → Low",
-                "manipulation_found": True
-            }
-        )
-
-
-    # --------------------------------------------------------
-    # BEARISH:
-    # Latest Swing Low
-    # followed by
-    # Latest Swing High
-    # --------------------------------------------------------
-
-    elif direction == "Bearish":
-
-        swing_lows = swing_window[
-            swing_window["swing_low"]
-        ]
-
-        if swing_lows.empty:
-
-            manipulation_rows.append(
-                {
-                    "setup_id": setup_id,
-                    "setup_date": setup_date,
-                    "setup_time": setup_time,
-                    "direction": direction,
-                    "pullback_bar_index": pullback_bar_index,
-                    "swing_1_type": None,
-                    "swing_1_bar_index": None,
-                    "swing_1_price": None,
-                    "swing_2_type": None,
-                    "swing_2_bar_index": None,
-                    "swing_2_price": None,
-                    "manipulation_leg": None,
-                    "manipulation_found": False
-                }
-            )
-
-            continue
-
-
-        latest_low = (
-            swing_lows
-            .sort_values("bar_index")
-            .iloc[-1]
-        )
-
-
-        swing_highs_after_low = swing_window[
-            (swing_window["swing_high"])
-            &
-            (
-                swing_window["bar_index"]
-                > int(latest_low["bar_index"])
-            )
-        ]
-
-
-        if swing_highs_after_low.empty:
-
-            manipulation_rows.append(
-                {
-                    "setup_id": setup_id,
-                    "setup_date": setup_date,
-                    "setup_time": setup_time,
-                    "direction": direction,
-                    "pullback_bar_index": pullback_bar_index,
-                    "swing_1_type": "Swing Low",
-                    "swing_1_bar_index": int(
-                        latest_low["bar_index"]
-                    ),
-                    "swing_1_price": float(
-                        latest_low["low"]
-                    ),
-                    "swing_2_type": None,
-                    "swing_2_bar_index": None,
-                    "swing_2_price": None,
-                    "manipulation_leg": None,
-                    "manipulation_found": False
-                }
-            )
-
-            continue
-
-
-        latest_high = (
-            swing_highs_after_low
-            .sort_values("bar_index")
-            .iloc[-1]
-        )
-
-
-        manipulation_rows.append(
-            {
-                "setup_id": setup_id,
-                "setup_date": setup_date,
-                "setup_time": setup_time,
-                "direction": direction,
-                "pullback_bar_index": pullback_bar_index,
-                "swing_1_type": "Swing Low",
-                "swing_1_bar_index": int(
-                    latest_low["bar_index"]
-                ),
-                "swing_1_price": float(
-                    latest_low["low"]
-                ),
-                "swing_2_type": "Swing High",
-                "swing_2_bar_index": int(
-                    latest_high["bar_index"]
-                ),
-                "swing_2_price": float(
-                    latest_high["high"]
-                ),
-                "manipulation_leg": "Low → High",
-                "manipulation_found": True
-            }
-        )
-
-
-    else:
-
-        manipulation_rows.append(
-            {
-                "setup_id": setup_id,
-                "setup_date": setup_date,
-                "setup_time": setup_time,
-                "direction": direction,
-                "pullback_bar_index": pullback_bar_index,
-                "swing_1_type": None,
-                "swing_1_bar_index": None,
-                "swing_1_price": None,
-                "swing_2_type": None,
-                "swing_2_bar_index": None,
-                "swing_2_price": None,
-                "manipulation_leg": None,
-                "manipulation_found": False
-            }
-        )
-
-
-# ============================================================
-# MANIPULATION DATAFRAME
-# ============================================================
 
 manipulation = pd.DataFrame(
     manipulation_rows
@@ -1352,12 +1481,8 @@ with m3:
     )
 
 
-# ============================================================
-# MANIPULATION TABLE
-# ============================================================
-
 with st.expander(
-    "📋 View LEFT-SIDE Manipulation Mapping"
+    "📋 View Manipulation Mapping"
 ):
 
     st.dataframe(
@@ -1377,8 +1502,9 @@ st.header(
 )
 
 st.info(
-    "AOX अभी calculation नहीं कर रहा है. "
-    "पहले LEFT-SIDE manipulation mapping verify की जा रही है."
+    "AOX levels configured हैं. "
+    "Actual Fibonacci price calculation अभी intentionally "
+    "apply नहीं की गई है."
 )
 
 
@@ -1491,16 +1617,16 @@ st.divider()
 if manipulation_found_count > 0:
 
     st.success(
-        "✅ Data → Valid Pullback → Setup → "
-        "Latest Swing → LEFT-SIDE Manipulation "
+        "✅ Data → Setup → Valid Pullback → "
+        "C2 Manipulation Point mapping "
         "pipeline loaded successfully."
     )
 
 else:
 
     st.warning(
-        "⚠️ No LEFT-SIDE manipulation pair was found "
-        "under the current swing definition."
+        "⚠️ No valid setup → pullback → "
+        "manipulation mapping was found."
     )
 
 
