@@ -211,6 +211,71 @@ def validate_ohlc(df):
 
 
 # ============================================================
+# AOX CUSTOMIZED FIBONACCI CALCULATION
+# ============================================================
+
+def calculate_aox_levels(
+    direction,
+    manipulation_high,
+    manipulation_low
+):
+
+    if direction == "Bullish":
+
+        fib_0_price = float(
+            manipulation_low
+        )
+
+        fib_1_price = float(
+            manipulation_high
+        )
+
+    elif direction == "Bearish":
+
+        fib_0_price = float(
+            manipulation_high
+        )
+
+        fib_1_price = float(
+            manipulation_low
+        )
+
+    else:
+
+        raise ValueError(
+            f"Invalid AOX direction: {direction}"
+        )
+
+    price_range = (
+        fib_1_price
+        - fib_0_price
+    )
+
+    result = {}
+
+    for level in AOX_LEVELS:
+
+        price = (
+            fib_0_price
+            + (
+                float(level)
+                * price_range
+            )
+        )
+
+        result[float(level)] = float(
+            price
+        )
+
+    return {
+        "fib_0_price": fib_0_price,
+        "fib_1_price": fib_1_price,
+        "range": price_range,
+        "levels": result
+    }
+
+
+# ============================================================
 # FILE UPLOAD
 # ============================================================
 
@@ -464,16 +529,6 @@ c3_close = (
 # ============================================================
 # BULLISH VALID PULLBACK
 # ============================================================
-#
-# C2 Low must go below C1 Low.
-# C2 close does NOT need to close back above C1 Low.
-#
-# Then C3 must CLOSE above C1 High.
-#
-# This follows:
-# "grabbing = price went below low,
-# wick or close both valid."
-# ============================================================
 
 bullish_mask = (
     (c2_low < c1_low)
@@ -484,16 +539,6 @@ bullish_mask = (
 
 # ============================================================
 # BEARISH VALID PULLBACK
-# ============================================================
-#
-# C2 High must go above C1 High.
-# C2 close does NOT need to close back below C1 High.
-#
-# Then C3 must CLOSE below C1 Low.
-#
-# This follows:
-# "grabbing = price went above high,
-# wick or close both valid."
 # ============================================================
 
 bearish_mask = (
@@ -582,11 +627,6 @@ bullish_signals[
     .loc[bullish_mask]
 )
 
-# ------------------------------------------------------------
-# IMPORTANT:
-# Pullback date is the NY date of C3.
-# ------------------------------------------------------------
-
 bullish_signals[
     "ny_date"
 ] = (
@@ -673,11 +713,6 @@ bearish_signals[
     df["close"]
     .loc[bearish_mask]
 )
-
-# ------------------------------------------------------------
-# IMPORTANT:
-# Pullback date is the NY date of C3.
-# ------------------------------------------------------------
 
 bearish_signals[
     "ny_date"
@@ -1077,16 +1112,6 @@ if len(after_setup) > 0:
 # ============================================================
 # SWING DETECTION
 # ============================================================
-#
-# These definitions are kept only as the general swing
-# definitions supplied by the user.
-#
-# IMPORTANT:
-# Swing High / Swing Low are NOT being used to create
-# the manipulation leg.
-#
-# Manipulation comes directly from the Valid Pullback C2.
-# ============================================================
 
 st.divider()
 
@@ -1208,10 +1233,6 @@ for _, setup in setups.iterrows():
     ]
 
 
-    # --------------------------------------------------------
-    # NO PULLBACK
-    # --------------------------------------------------------
-
     if setup_pullback.empty:
 
         manipulation_rows.append(
@@ -1314,7 +1335,6 @@ for _, setup in setups.iterrows():
             ]
         )
 
-
         manipulation_rows.append(
             {
                 "setup_id": setup_id,
@@ -1391,7 +1411,6 @@ for _, setup in setups.iterrows():
                 "c2_high"
             ]
         )
-
 
         manipulation_rows.append(
             {
@@ -1553,6 +1572,281 @@ with st.expander(
 
 
 # ============================================================
+# AOX CUSTOMIZED FIBONACCI
+# ============================================================
+
+st.divider()
+
+st.header(
+    "📐 AOX Customized Fibonacci"
+)
+
+st.caption(
+    "Bullish: Low = Fib 0, High = Fib 1."
+)
+
+st.caption(
+    "Bearish: High = Fib 0, Low = Fib 1."
+)
+
+st.caption(
+    "Price = Fib 0 + Level × (Fib 1 − Fib 0)."
+)
+
+
+aox_rows = []
+
+
+# ============================================================
+# CALCULATE AOX FOR EVERY VALID MANIPULATION
+# ============================================================
+
+for _, row in manipulation.iterrows():
+
+    if not bool(
+        row["manipulation_found"]
+    ):
+
+        continue
+
+
+    direction = (
+        row["direction"]
+    )
+
+
+    c2_bar_index = int(
+        row["c2_bar_index"]
+    )
+
+
+    # --------------------------------------------------------
+    # MANIPULATION CANDLE HIGH / LOW
+    # --------------------------------------------------------
+
+    manipulation_candle = df.loc[
+        df["bar_index"] == c2_bar_index
+    ]
+
+
+    if manipulation_candle.empty:
+
+        continue
+
+
+    manipulation_candle = (
+        manipulation_candle.iloc[0]
+    )
+
+
+    manipulation_high = float(
+        manipulation_candle["high"]
+    )
+
+    manipulation_low = float(
+        manipulation_candle["low"]
+    )
+
+
+    # --------------------------------------------------------
+    # CALCULATE CUSTOM FIB
+    # --------------------------------------------------------
+
+    aox = calculate_aox_levels(
+        direction=direction,
+        manipulation_high=manipulation_high,
+        manipulation_low=manipulation_low
+    )
+
+
+    level_prices = (
+        aox["levels"]
+    )
+
+
+    # --------------------------------------------------------
+    # ENTRY LEVEL PRICES
+    # --------------------------------------------------------
+
+    entry_price_minus_021 = level_prices[
+        -0.210
+    ]
+
+    entry_price_minus_0255 = level_prices[
+        -0.255
+    ]
+
+    entry_price_minus_029 = level_prices[
+        -0.290
+    ]
+
+
+    # --------------------------------------------------------
+    # TARGET / REFERENCE LEVEL PRICES
+    # --------------------------------------------------------
+
+    reference_price_256 = level_prices[
+        2.560
+    ]
+
+    reference_price_260 = level_prices[
+        2.600
+    ]
+
+    reference_price_264 = level_prices[
+        2.640
+    ]
+
+
+    # --------------------------------------------------------
+    # SAVE AOX ROW
+    # --------------------------------------------------------
+
+    aox_rows.append(
+        {
+            "setup_id": int(
+                row["setup_id"]
+            ),
+            "setup_date": row[
+                "setup_date"
+            ],
+            "setup_time": row[
+                "setup_time"
+            ],
+            "direction": direction,
+            "pullback_bar_index": int(
+                row["pullback_bar_index"]
+            ),
+            "c2_bar_index": c2_bar_index,
+
+            "manipulation_high": (
+                manipulation_high
+            ),
+
+            "manipulation_low": (
+                manipulation_low
+            ),
+
+            "fib_0_price": (
+                aox["fib_0_price"]
+            ),
+
+            "fib_1_price": (
+                aox["fib_1_price"]
+            ),
+
+            "fib_range": (
+                aox["range"]
+            ),
+
+            "aox_-0.210": (
+                entry_price_minus_021
+            ),
+
+            "aox_-0.255": (
+                entry_price_minus_0255
+            ),
+
+            "aox_-0.290": (
+                entry_price_minus_029
+            ),
+
+            "aox_1.470": (
+                level_prices[
+                    1.470
+                ]
+            ),
+
+            "aox_1.550": (
+                level_prices[
+                    1.550
+                ]
+            ),
+
+            "aox_2.560": (
+                reference_price_256
+            ),
+
+            "aox_2.600": (
+                reference_price_260
+            ),
+
+            "aox_2.640": (
+                reference_price_264
+            )
+        }
+    )
+
+
+# ============================================================
+# AOX DATAFRAME
+# ============================================================
+
+aox_calculations = pd.DataFrame(
+    aox_rows
+)
+
+
+# ============================================================
+# AOX SUMMARY
+# ============================================================
+
+aox_calculation_count = len(
+    aox_calculations
+)
+
+
+st.metric(
+    "AOX Calculations",
+    f"{aox_calculation_count:,}"
+)
+
+
+# ============================================================
+# AOX CALCULATION TABLE
+# ============================================================
+
+with st.expander(
+    "📋 View AOX Calculated Prices"
+):
+
+    aox_display_columns = [
+        "setup_id",
+        "setup_date",
+        "setup_time",
+        "direction",
+        "pullback_bar_index",
+        "c2_bar_index",
+        "manipulation_high",
+        "manipulation_low",
+        "fib_0_price",
+        "fib_1_price",
+        "fib_range",
+        "aox_-0.210",
+        "aox_-0.255",
+        "aox_-0.290",
+        "aox_1.470",
+        "aox_1.550",
+        "aox_2.560",
+        "aox_2.600",
+        "aox_2.640"
+    ]
+
+    aox_display_columns = [
+        c
+        for c in aox_display_columns
+        if c in aox_calculations.columns
+    ]
+
+    st.dataframe(
+        aox_calculations[
+            aox_display_columns
+        ],
+        use_container_width=True
+    )
+
+
+# ============================================================
 # AOX CONFIGURATION
 # ============================================================
 
@@ -1562,10 +1856,9 @@ st.header(
     "📐 AOX Configuration"
 )
 
-st.info(
-    "AOX levels अभी display/configuration के रूप में हैं. "
-    "Exact customized Fibonacci price calculation "
-    "जानबूझकर नहीं जोड़ी गई है."
+st.success(
+    "AOX customized Fibonacci price calculation "
+    "successfully applied to every valid manipulation."
 )
 
 
@@ -1603,11 +1896,11 @@ with col3:
 
 
 st.caption(
-    "Bullish AOX orientation: High → Low"
+    "Bullish AOX: Low → High"
 )
 
 st.caption(
-    "Bearish AOX orientation: Low → High"
+    "Bearish AOX: High → Low"
 )
 
 st.caption(
@@ -1674,7 +1967,8 @@ if manipulation_found_count > 0:
 
     st.success(
         "✅ Data → 8:30/9:30 Setup → "
-        "Valid Pullback → C2 Manipulation "
+        "Valid Pullback → C2 Manipulation → "
+        "AOX Fibonacci Calculation "
         "pipeline loaded successfully."
     )
 
@@ -1691,8 +1985,8 @@ else:
 # ============================================================
 
 st.info(
-    "Next module: AOX customized Fibonacci calculation → "
-    "first valid AOX entry → "
+    "Next module: AOX first valid entry detection → "
+    "same-candle ambiguity handling → "
     "2-position SL/TP simulation → "
     "performance report."
 )
