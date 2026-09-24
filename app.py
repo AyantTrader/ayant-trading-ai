@@ -137,7 +137,20 @@ df = df.sort_values(
     "datetime"
 ).reset_index(drop=True)
 
+# ============================================================
+# CHRONOLOGICAL BAR INDEX
+# ============================================================
+# IMPORTANT:
+# We use bar_index for candle-order comparisons.
+# This completely avoids timezone-aware/naive comparison issues.
+
+df["bar_index"] = np.arange(
+    len(df),
+    dtype=np.int64
+)
+
 st.success("✅ Datetime validation complete")
+st.success("✅ Chronological bar index created")
 
 # ============================================================
 # DATA SUMMARY
@@ -225,89 +238,99 @@ bearish_mask = (
 # ============================================================
 
 bullish_signals = pd.DataFrame({
+    "bar_index": df.loc[
+        bullish_mask,
+        "bar_index"
+    ].to_numpy(),
+
     "datetime": df.loc[
         bullish_mask,
         "datetime"
-    ].values,
+    ].tolist(),
 
     "ny_time": df.loc[
         bullish_mask,
         "ny_time"
-    ].values,
+    ].tolist(),
 
     "ny_date": df.loc[
         bullish_mask,
         "ny_date"
-    ].values,
+    ].tolist(),
 
     "direction": "BULLISH",
 
     "c1_high": c1_high.loc[
         bullish_mask
-    ].values,
+    ].to_numpy(),
 
     "c1_low": c1_low.loc[
         bullish_mask
-    ].values,
+    ].to_numpy(),
 
     "c2_high": c2_high.loc[
         bullish_mask
-    ].values,
+    ].to_numpy(),
 
     "c2_low": c2_low.loc[
         bullish_mask
-    ].values,
+    ].to_numpy(),
 
     "c2_close": c2_close.loc[
         bullish_mask
-    ].values,
+    ].to_numpy(),
 
     "c3_close": c3_close.loc[
         bullish_mask
-    ].values
+    ].to_numpy()
 })
 
 bearish_signals = pd.DataFrame({
+    "bar_index": df.loc[
+        bearish_mask,
+        "bar_index"
+    ].to_numpy(),
+
     "datetime": df.loc[
         bearish_mask,
         "datetime"
-    ].values,
+    ].tolist(),
 
     "ny_time": df.loc[
         bearish_mask,
         "ny_time"
-    ].values,
+    ].tolist(),
 
     "ny_date": df.loc[
         bearish_mask,
         "ny_date"
-    ].values,
+    ].tolist(),
 
     "direction": "BEARISH",
 
     "c1_high": c1_high.loc[
         bearish_mask
-    ].values,
+    ].to_numpy(),
 
     "c1_low": c1_low.loc[
-        bearish_mask
-    ].values,
+        bullish_mask
+    ].to_numpy(),
 
     "c2_high": c2_high.loc[
         bearish_mask
-    ].values,
+    ].to_numpy(),
 
     "c2_low": c2_low.loc[
         bearish_mask
-    ].values,
+    ].to_numpy(),
 
     "c2_close": c2_close.loc[
         bearish_mask
-    ].values,
+    ].to_numpy(),
 
     "c3_close": c3_close.loc[
         bearish_mask
-    ].values
+    ].to_numpy()
 })
 
 pullbacks = pd.concat(
@@ -319,13 +342,15 @@ pullbacks = pd.concat(
 )
 
 pullbacks = pullbacks.sort_values(
-    "datetime"
+    "bar_index"
 ).reset_index(drop=True)
 
 total_pullbacks = len(pullbacks)
+
 bullish_count = int(
     bullish_mask.sum()
 )
+
 bearish_count = int(
     bearish_mask.sum()
 )
@@ -385,6 +410,7 @@ setup_mask = (
 setups = df.loc[
     setup_mask,
     [
+        "bar_index",
         "datetime",
         "ny_time",
         "ny_date",
@@ -435,18 +461,16 @@ else:
 
         setup_date = setup["ny_date"]
 
-        setup_dt = setup["datetime"]
-
-        # IMPORTANT:
-        # setup_dt is UTC-aware.
-        # pullbacks["datetime"] is also UTC-aware.
-        #
-        # Therefore comparison is timezone compatible.
+        # Use integer bar index.
+        # No datetime comparison is performed here.
+        setup_bar_index = int(
+            setup["bar_index"]
+        )
 
         candidates = pullbacks[
             (pullbacks["ny_date"] == setup_date)
             &
-            (pullbacks["datetime"] > setup_dt)
+            (pullbacks["bar_index"] > setup_bar_index)
         ]
 
         if len(candidates) == 0:
@@ -457,7 +481,7 @@ else:
 
         setup_records.append({
             "setup_datetime":
-                setup_dt,
+                setup["datetime"],
 
             "setup_ny_time":
                 setup["ny_time"],
@@ -520,6 +544,7 @@ else:
         s1, s2, s3 = st.columns(3)
 
         with s1:
+
             count_830 = int(
                 (
                     setup_pullbacks["setup_type"]
@@ -533,6 +558,7 @@ else:
             )
 
         with s2:
+
             count_930 = int(
                 (
                     setup_pullbacks["setup_type"]
@@ -546,6 +572,7 @@ else:
             )
 
         with s3:
+
             bull = int(
                 (
                     setup_pullbacks["direction"]
