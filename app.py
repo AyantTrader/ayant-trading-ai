@@ -9,7 +9,7 @@ import numpy as np
 
 st.set_page_config(
     page_title="AYANT Trading AI",
-    page_icon="📈",
+    page_icon="💀",
     layout="wide"
 )
 
@@ -2931,6 +2931,7 @@ with st.expander(
         use_container_width=True
     )
 
+
 # ============================================================
 # PERFORMANCE REPORT
 # ============================================================
@@ -3745,6 +3746,627 @@ st.success(
 )
 
 
+# ============================================================
+# TRADE CHART / TRADE VISUALIZER
+# ============================================================
+
+st.divider()
+
+st.header(
+    "📉 Backtested Trade Chart"
+)
+
+st.caption(
+    "किसी भी backtested trade को select करके "
+    "उसके आसपास का XAUUSD price movement, Entry, "
+    "SL और दोनों TP levels देख सकते हो."
+)
+
+
+# ============================================================
+# TRADE CHART DATA CHECK
+# ============================================================
+
+if len(trade_simulations) == 0:
+
+    st.info(
+        "Trade chart दिखाने के लिए कोई valid "
+        "AOX entry उपलब्ध नहीं है."
+    )
+
+else:
+
+    # --------------------------------------------------------
+    # CREATE TRADE SELECTOR LABELS
+    # --------------------------------------------------------
+
+    chart_trade_options = []
+
+    chart_trade_lookup = {}
+
+
+    for chart_index, (_, chart_trade) in enumerate(
+        trade_simulations.iterrows(),
+        start=1
+    ):
+
+        setup_id_value = int(
+            chart_trade["setup_id"]
+        )
+
+        setup_time_value = (
+            chart_trade["setup_time"]
+        )
+
+        direction_value = (
+            chart_trade["direction"]
+        )
+
+        entry_datetime_value = (
+            chart_trade["entry_datetime"]
+        )
+
+        entry_price_value = float(
+            chart_trade["entry_price"]
+        )
+
+        trade_1_status_value = (
+            chart_trade["trade_1_status"]
+        )
+
+        trade_2_status_value = (
+            chart_trade["trade_2_status"]
+        )
+
+        combined_r_value = (
+            chart_trade["combined_r"]
+        )
+
+
+        if pd.notna(
+            combined_r_value
+        ):
+
+            combined_r_text = (
+                f"{float(combined_r_value):.2f}R"
+            )
+
+        else:
+
+            combined_r_text = "Incomplete"
+
+
+        if pd.notna(
+            entry_datetime_value
+        ):
+
+            entry_time_text = (
+                pd.Timestamp(
+                    entry_datetime_value
+                )
+                .tz_convert(
+                    NY_TZ
+                )
+                .strftime(
+                    "%Y-%m-%d %H:%M"
+                )
+            )
+
+        else:
+
+            entry_time_text = "Unknown"
+
+
+        option_label = (
+            f"Trade #{chart_index} | "
+            f"Setup {setup_id_value} | "
+            f"{setup_time_value} | "
+            f"{direction_value} | "
+            f"{entry_time_text} | "
+            f"Entry {entry_price_value:.3f} | "
+            f"T1 {trade_1_status_value} | "
+            f"T2 {trade_2_status_value} | "
+            f"{combined_r_text}"
+        )
+
+
+        chart_trade_options.append(
+            option_label
+        )
+
+        chart_trade_lookup[
+            option_label
+        ] = chart_index - 1
+
+
+    selected_chart_trade = st.selectbox(
+        "Select backtested trade",
+        chart_trade_options
+    )
+
+
+    selected_chart_index = chart_trade_lookup[
+        selected_chart_trade
+    ]
+
+
+    selected_trade = (
+        trade_simulations
+        .iloc[selected_chart_index]
+    )
+
+
+    # --------------------------------------------------------
+    # SELECTED TRADE INFORMATION
+    # --------------------------------------------------------
+
+    selected_setup_id = int(
+        selected_trade[
+            "setup_id"
+        ]
+    )
+
+    selected_setup_date = (
+        selected_trade[
+            "setup_date"
+        ]
+    )
+
+    selected_setup_time = (
+        selected_trade[
+            "setup_time"
+        ]
+    )
+
+    selected_direction = (
+        selected_trade[
+            "direction"
+        ]
+    )
+
+    selected_entry_price = float(
+        selected_trade[
+            "entry_price"
+        ]
+    )
+
+    selected_entry_bar_index = int(
+        selected_trade[
+            "entry_bar_index"
+        ]
+    )
+
+    selected_entry_datetime = (
+        selected_trade[
+            "entry_datetime"
+        ]
+    )
+
+
+    # --------------------------------------------------------
+    # TRADE 1 LEVELS
+    # --------------------------------------------------------
+
+    selected_trade_1_sl = float(
+        selected_trade[
+            "trade_1_sl"
+        ]
+    )
+
+    selected_trade_1_tp = float(
+        selected_trade[
+            "trade_1_tp"
+        ]
+    )
+
+
+    # --------------------------------------------------------
+    # TRADE 2 LEVELS
+    # --------------------------------------------------------
+
+    selected_trade_2_sl = float(
+        selected_trade[
+            "trade_2_sl"
+        ]
+    )
+
+    selected_trade_2_tp = float(
+        selected_trade[
+            "trade_2_tp"
+        ]
+    )
+
+
+    # --------------------------------------------------------
+    # EXIT INFORMATION
+    # --------------------------------------------------------
+
+    selected_trade_1_exit_bar = (
+        selected_trade[
+            "trade_1_exit_bar_index"
+        ]
+    )
+
+    selected_trade_2_exit_bar = (
+        selected_trade[
+            "trade_2_exit_bar_index"
+        ]
+    )
+
+
+    valid_exit_bars = []
+
+
+    if pd.notna(
+        selected_trade_1_exit_bar
+    ):
+
+        valid_exit_bars.append(
+            int(
+                selected_trade_1_exit_bar
+            )
+        )
+
+
+    if pd.notna(
+        selected_trade_2_exit_bar
+    ):
+
+        valid_exit_bars.append(
+            int(
+                selected_trade_2_exit_bar
+            )
+        )
+
+
+    # --------------------------------------------------------
+    # CHART WINDOW
+    # --------------------------------------------------------
+
+    chart_before_bars = 30
+
+    chart_after_bars = 30
+
+
+    if len(valid_exit_bars) > 0:
+
+        chart_end_bar = max(
+            valid_exit_bars
+        ) + chart_after_bars
+
+    else:
+
+        chart_end_bar = (
+            selected_entry_bar_index
+            + chart_after_bars
+        )
+
+
+    chart_start_bar = max(
+        0,
+        selected_entry_bar_index
+        - chart_before_bars
+    )
+
+
+    chart_end_bar = min(
+        len(df) - 1,
+        chart_end_bar
+    )
+
+
+    chart_window = df[
+        (
+            df["bar_index"]
+            >= chart_start_bar
+        )
+        &
+        (
+            df["bar_index"]
+            <= chart_end_bar
+        )
+    ].copy()
+
+
+    # --------------------------------------------------------
+    # CREATE CHART DATA
+    # --------------------------------------------------------
+
+    chart_data = chart_window[
+        [
+            "datetime",
+            "close"
+        ]
+    ].copy()
+
+
+    chart_data[
+        "Entry"
+    ] = np.nan
+
+    chart_data[
+        "Trade 1 SL"
+    ] = selected_trade_1_sl
+
+    chart_data[
+        "Trade 1 TP"
+    ] = selected_trade_1_tp
+
+    chart_data[
+        "Trade 2 SL"
+    ] = selected_trade_2_sl
+
+    chart_data[
+        "Trade 2 TP"
+    ] = selected_trade_2_tp
+
+    chart_data[
+        "Trade 1 Exit"
+    ] = np.nan
+
+    chart_data[
+        "Trade 2 Exit"
+    ] = np.nan
+
+
+    # --------------------------------------------------------
+    # ENTRY MARKER
+    # --------------------------------------------------------
+
+    entry_marker_mask = (
+        chart_window[
+            "bar_index"
+        ]
+        ==
+        selected_entry_bar_index
+    )
+
+
+    chart_data.loc[
+        entry_marker_mask,
+        "Entry"
+    ] = selected_entry_price
+
+
+    # --------------------------------------------------------
+    # TRADE 1 EXIT MARKER
+    # --------------------------------------------------------
+
+    if pd.notna(
+        selected_trade_1_exit_bar
+    ):
+
+        trade_1_exit_bar = int(
+            selected_trade_1_exit_bar
+        )
+
+        trade_1_exit_price = (
+            selected_trade[
+                "trade_1_exit_price"
+            ]
+        )
+
+        if pd.notna(
+            trade_1_exit_price
+        ):
+
+            trade_1_exit_mask = (
+                chart_window[
+                    "bar_index"
+                ]
+                ==
+                trade_1_exit_bar
+            )
+
+            chart_data.loc[
+                trade_1_exit_mask,
+                "Trade 1 Exit"
+            ] = float(
+                trade_1_exit_price
+            )
+
+
+    # --------------------------------------------------------
+    # TRADE 2 EXIT MARKER
+    # --------------------------------------------------------
+
+    if pd.notna(
+        selected_trade_2_exit_bar
+    ):
+
+        trade_2_exit_bar = int(
+            selected_trade_2_exit_bar
+        )
+
+        trade_2_exit_price = (
+            selected_trade[
+                "trade_2_exit_price"
+            ]
+        )
+
+        if pd.notna(
+            trade_2_exit_price
+        ):
+
+            trade_2_exit_mask = (
+                chart_window[
+                    "bar_index"
+                ]
+                ==
+                trade_2_exit_bar
+            )
+
+            chart_data.loc[
+                trade_2_exit_mask,
+                "Trade 2 Exit"
+            ] = float(
+                trade_2_exit_price
+            )
+
+
+    # --------------------------------------------------------
+    # DATETIME AS INDEX
+    # --------------------------------------------------------
+
+    chart_data = chart_data.set_index(
+        "datetime"
+    )
+
+
+    # --------------------------------------------------------
+    # CHART METRICS
+    # --------------------------------------------------------
+
+    chart_info_1, chart_info_2, chart_info_3, chart_info_4 = (
+        st.columns(4)
+    )
+
+
+    with chart_info_1:
+
+        st.metric(
+            "Setup",
+            f"{selected_setup_time}"
+        )
+
+
+    with chart_info_2:
+
+        st.metric(
+            "Direction",
+            selected_direction
+        )
+
+
+    with chart_info_3:
+
+        st.metric(
+            "Entry",
+            f"{selected_entry_price:.3f}"
+        )
+
+
+    with chart_info_4:
+
+        if pd.notna(
+            selected_trade["combined_r"]
+        ):
+
+            st.metric(
+                "Combined R",
+                f"{float(selected_trade['combined_r']):.2f}R"
+            )
+
+        else:
+
+            st.metric(
+                "Combined R",
+                "Incomplete"
+            )
+
+
+    # --------------------------------------------------------
+    # PRICE CHART
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Price Movement + Trade Levels"
+    )
+
+    st.line_chart(
+        chart_data,
+        height=500
+    )
+
+
+    # --------------------------------------------------------
+    # TRADE DETAILS
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Selected Trade Details"
+    )
+
+
+    chart_detail_1, chart_detail_2 = st.columns(2)
+
+
+    with chart_detail_1:
+
+        st.write(
+            "**Entry**"
+        )
+
+        st.write(
+            f"Price: {selected_entry_price:.3f}"
+        )
+
+        st.write(
+            f"Setup: {selected_setup_time}"
+        )
+
+        st.write(
+            f"Direction: {selected_direction}"
+        )
+
+        st.write(
+            f"Setup ID: {selected_setup_id}"
+        )
+
+        st.write(
+            f"Setup Date: {selected_setup_date}"
+        )
+
+
+    with chart_detail_2:
+
+        st.write(
+            "**Trade Results**"
+        )
+
+        st.write(
+            f"Trade 1: {selected_trade['trade_1_status']}"
+        )
+
+        st.write(
+            f"Trade 1 Exit: {selected_trade['trade_1_exit_price']}"
+        )
+
+        st.write(
+            f"Trade 2: {selected_trade['trade_2_status']}"
+        )
+
+        st.write(
+            f"Trade 2 Exit: {selected_trade['trade_2_exit_price']}"
+        )
+
+        if pd.notna(
+            selected_trade["combined_r"]
+        ):
+
+            st.write(
+                f"Combined R: "
+                f"{float(selected_trade['combined_r']):.2f}R"
+            )
+
+        else:
+
+            st.write(
+                "Combined R: Incomplete"
+            )
+
+
+    # --------------------------------------------------------
+    # CHART WINDOW INFORMATION
+    # --------------------------------------------------------
+
+    st.caption(
+        f"Chart window: {len(chart_window):,} "
+        f"1-minute candles "
+        f"({chart_before_bars} candles before entry "
+        f"and up to {chart_after_bars} candles after "
+        f"the final exit)."
+    )
 
 
 # ============================================================
@@ -3886,7 +4508,7 @@ else:
 # ============================================================
 
 st.info(
-    "Next module: Performance report → "
-    "win rate → profit factor → net R → "
-    "drawdown → streaks → session/day/month breakdown."
+    "Trade Chart module added → "
+    "select a backtested trade to inspect "
+    "Entry → SL → TP → Exit price movement."
 )
