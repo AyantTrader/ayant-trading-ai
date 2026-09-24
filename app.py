@@ -2194,6 +2194,745 @@ with st.expander(
 
 
 # ============================================================
+# 2-POSITION SL/TP SIMULATION
+# ============================================================
+
+st.divider()
+
+st.header(
+    "📊 2-Position SL/TP Simulation"
+)
+
+st.caption(
+    "हर valid AOX entry पर 2 independent positions "
+    "simulate की जाएंगी."
+)
+
+st.caption(
+    "Trade 1: SL = 5.000, TP = 15.000."
+)
+
+st.caption(
+    "Trade 2: SL = 5.000, TP = 20.000."
+)
+
+st.caption(
+    "एक ही candle में SL और TP दोनों touch होने पर "
+    "result AMBIGUOUS माना जाएगा."
+)
+
+st.caption(
+    "Entry candle में exit level touch होने पर भी "
+    "intrabar order निश्चित नहीं होने के कारण "
+    "result AMBIGUOUS माना जाएगा."
+)
+
+
+# ============================================================
+# SL/TP SIMULATION FUNCTION
+# ============================================================
+
+def simulate_position(
+    direction,
+    entry_price,
+    entry_bar_index,
+    sl_distance,
+    tp_distance,
+    position_name
+):
+
+    entry_price = float(
+        entry_price
+    )
+
+    entry_bar_index = int(
+        entry_bar_index
+    )
+
+    sl_distance = float(
+        sl_distance
+    )
+
+    tp_distance = float(
+        tp_distance
+    )
+
+
+    # --------------------------------------------------------
+    # CALCULATE SL / TP PRICES
+    # --------------------------------------------------------
+
+    if direction == "Bullish":
+
+        sl_price = (
+            entry_price
+            - sl_distance
+        )
+
+        tp_price = (
+            entry_price
+            + tp_distance
+        )
+
+    elif direction == "Bearish":
+
+        sl_price = (
+            entry_price
+            + sl_distance
+        )
+
+        tp_price = (
+            entry_price
+            - tp_distance
+        )
+
+    else:
+
+        return {
+            "position": position_name,
+            "status": "INVALID_DIRECTION",
+            "entry_price": entry_price,
+            "sl_price": None,
+            "tp_price": None,
+            "exit_price": None,
+            "exit_bar_index": None,
+            "exit_datetime": None,
+            "result_r": None
+        }
+
+
+    # --------------------------------------------------------
+    # SEARCH FROM ENTRY CANDLE ONWARD
+    # --------------------------------------------------------
+
+    trade_bars = df[
+        df["bar_index"] >= entry_bar_index
+    ].copy()
+
+
+    if trade_bars.empty:
+
+        return {
+            "position": position_name,
+            "status": "NO_EXIT",
+            "entry_price": entry_price,
+            "sl_price": sl_price,
+            "tp_price": tp_price,
+            "exit_price": None,
+            "exit_bar_index": None,
+            "exit_datetime": None,
+            "result_r": None
+        }
+
+
+    # --------------------------------------------------------
+    # PROCESS CANDLES
+    # --------------------------------------------------------
+
+    for _, candle in trade_bars.iterrows():
+
+        candle_bar_index = int(
+            candle["bar_index"]
+        )
+
+        candle_high = float(
+            candle["high"]
+        )
+
+        candle_low = float(
+            candle["low"]
+        )
+
+        candle_datetime = (
+            candle["datetime"]
+        )
+
+
+        # ----------------------------------------------------
+        # BULLISH
+        # ----------------------------------------------------
+
+        if direction == "Bullish":
+
+            sl_touched = (
+                candle_low
+                <= sl_price
+            )
+
+            tp_touched = (
+                candle_high
+                >= tp_price
+            )
+
+
+        # ----------------------------------------------------
+        # BEARISH
+        # ----------------------------------------------------
+
+        else:
+
+            sl_touched = (
+                candle_high
+                >= sl_price
+            )
+
+            tp_touched = (
+                candle_low
+                <= tp_price
+            )
+
+
+        # ----------------------------------------------------
+        # BOTH SL AND TP TOUCHED
+        # ----------------------------------------------------
+
+        if sl_touched and tp_touched:
+
+            return {
+                "position": position_name,
+                "status": "AMBIGUOUS",
+                "entry_price": entry_price,
+                "sl_price": sl_price,
+                "tp_price": tp_price,
+                "exit_price": None,
+                "exit_bar_index": candle_bar_index,
+                "exit_datetime": candle_datetime,
+                "result_r": None
+            }
+
+
+        # ----------------------------------------------------
+        # ONLY SL TOUCHED
+        # ----------------------------------------------------
+
+        if sl_touched:
+
+            return {
+                "position": position_name,
+                "status": "SL",
+                "entry_price": entry_price,
+                "sl_price": sl_price,
+                "tp_price": tp_price,
+                "exit_price": sl_price,
+                "exit_bar_index": candle_bar_index,
+                "exit_datetime": candle_datetime,
+                "result_r": -1.0
+            }
+
+
+        # ----------------------------------------------------
+        # ONLY TP TOUCHED
+        # ----------------------------------------------------
+
+        if tp_touched:
+
+            if position_name == "Trade 1":
+
+                result_r = 3.0
+
+            else:
+
+                result_r = 4.0
+
+
+            return {
+                "position": position_name,
+                "status": "TP",
+                "entry_price": entry_price,
+                "sl_price": sl_price,
+                "tp_price": tp_price,
+                "exit_price": tp_price,
+                "exit_bar_index": candle_bar_index,
+                "exit_datetime": candle_datetime,
+                "result_r": result_r
+            }
+
+
+    # --------------------------------------------------------
+    # DATA ENDED WITHOUT EXIT
+    # --------------------------------------------------------
+
+    return {
+        "position": position_name,
+        "status": "NO_EXIT",
+        "entry_price": entry_price,
+        "sl_price": sl_price,
+        "tp_price": tp_price,
+        "exit_price": None,
+        "exit_bar_index": None,
+        "exit_datetime": None,
+        "result_r": None
+    }
+
+
+# ============================================================
+# PROCESS VALID AOX ENTRIES
+# ============================================================
+
+trade_simulation_rows = []
+
+
+valid_aox_entries = aox_entries[
+    aox_entries[
+        "entry_status"
+    ] == "VALID_ENTRY"
+].copy()
+
+
+for _, entry in valid_aox_entries.iterrows():
+
+    setup_id = int(
+        entry["setup_id"]
+    )
+
+    setup_date = (
+        entry["setup_date"]
+    )
+
+    setup_time = (
+        entry["setup_time"]
+    )
+
+    direction = (
+        entry["direction"]
+    )
+
+    entry_level = float(
+        entry["entry_level"]
+    )
+
+    entry_price = float(
+        entry["entry_price"]
+    )
+
+    entry_bar_index = int(
+        entry["entry_bar_index"]
+    )
+
+    entry_datetime = (
+        entry["entry_datetime"]
+    )
+
+
+    # --------------------------------------------------------
+    # TRADE 1
+    # --------------------------------------------------------
+
+    trade_1 = simulate_position(
+        direction=direction,
+        entry_price=entry_price,
+        entry_bar_index=entry_bar_index,
+        sl_distance=TRADE_1_SL,
+        tp_distance=TRADE_1_TP,
+        position_name="Trade 1"
+    )
+
+
+    # --------------------------------------------------------
+    # TRADE 2
+    # --------------------------------------------------------
+
+    trade_2 = simulate_position(
+        direction=direction,
+        entry_price=entry_price,
+        entry_bar_index=entry_bar_index,
+        sl_distance=TRADE_2_SL,
+        tp_distance=TRADE_2_TP,
+        position_name="Trade 2"
+    )
+
+
+    # --------------------------------------------------------
+    # COMBINED R
+    # --------------------------------------------------------
+
+    if (
+        trade_1["result_r"] is not None
+        and
+        trade_2["result_r"] is not None
+    ):
+
+        combined_r = (
+            trade_1["result_r"]
+            +
+            trade_2["result_r"]
+        )
+
+    else:
+
+        combined_r = None
+
+
+    # --------------------------------------------------------
+    # SAVE TRADE RESULT
+    # --------------------------------------------------------
+
+    trade_simulation_rows.append(
+        {
+            "setup_id": setup_id,
+            "setup_date": setup_date,
+            "setup_time": setup_time,
+            "direction": direction,
+            "entry_level": entry_level,
+            "entry_price": entry_price,
+            "entry_bar_index": entry_bar_index,
+            "entry_datetime": entry_datetime,
+
+            "trade_1_status": (
+                trade_1["status"]
+            ),
+
+            "trade_1_sl": (
+                trade_1["sl_price"]
+            ),
+
+            "trade_1_tp": (
+                trade_1["tp_price"]
+            ),
+
+            "trade_1_exit_price": (
+                trade_1["exit_price"]
+            ),
+
+            "trade_1_exit_bar_index": (
+                trade_1["exit_bar_index"]
+            ),
+
+            "trade_1_exit_datetime": (
+                trade_1["exit_datetime"]
+            ),
+
+            "trade_1_result_r": (
+                trade_1["result_r"]
+            ),
+
+            "trade_2_status": (
+                trade_2["status"]
+            ),
+
+            "trade_2_sl": (
+                trade_2["sl_price"]
+            ),
+
+            "trade_2_tp": (
+                trade_2["tp_price"]
+            ),
+
+            "trade_2_exit_price": (
+                trade_2["exit_price"]
+            ),
+
+            "trade_2_exit_bar_index": (
+                trade_2["exit_bar_index"]
+            ),
+
+            "trade_2_exit_datetime": (
+                trade_2["exit_datetime"]
+            ),
+
+            "trade_2_result_r": (
+                trade_2["result_r"]
+            ),
+
+            "combined_r": combined_r
+        }
+    )
+
+
+# ============================================================
+# TRADE SIMULATION DATAFRAME
+# ============================================================
+
+trade_simulations = pd.DataFrame(
+    trade_simulation_rows
+)
+
+
+# ============================================================
+# TRADE SIMULATION SUMMARY
+# ============================================================
+
+if len(trade_simulations) > 0:
+
+    trade_1_tp_count = int(
+        (
+            trade_simulations[
+                "trade_1_status"
+            ]
+            == "TP"
+        ).sum()
+    )
+
+    trade_1_sl_count = int(
+        (
+            trade_simulations[
+                "trade_1_status"
+            ]
+            == "SL"
+        ).sum()
+    )
+
+    trade_1_ambiguous_count = int(
+        (
+            trade_simulations[
+                "trade_1_status"
+            ]
+            == "AMBIGUOUS"
+        ).sum()
+    )
+
+    trade_1_no_exit_count = int(
+        (
+            trade_simulations[
+                "trade_1_status"
+            ]
+            == "NO_EXIT"
+        ).sum()
+    )
+
+
+    trade_2_tp_count = int(
+        (
+            trade_simulations[
+                "trade_2_status"
+            ]
+            == "TP"
+        ).sum()
+    )
+
+    trade_2_sl_count = int(
+        (
+            trade_simulations[
+                "trade_2_status"
+            ]
+            == "SL"
+        ).sum()
+    )
+
+    trade_2_ambiguous_count = int(
+        (
+            trade_simulations[
+                "trade_2_status"
+            ]
+            == "AMBIGUOUS"
+        ).sum()
+    )
+
+    trade_2_no_exit_count = int(
+        (
+            trade_simulations[
+                "trade_2_status"
+            ]
+            == "NO_EXIT"
+        ).sum()
+    )
+
+else:
+
+    trade_1_tp_count = 0
+    trade_1_sl_count = 0
+    trade_1_ambiguous_count = 0
+    trade_1_no_exit_count = 0
+
+    trade_2_tp_count = 0
+    trade_2_sl_count = 0
+    trade_2_ambiguous_count = 0
+    trade_2_no_exit_count = 0
+
+
+# ============================================================
+# TRADE 1 SUMMARY
+# ============================================================
+
+st.subheader(
+    "Trade 1 — 1:3"
+)
+
+t1a, t1b, t1c, t1d = st.columns(4)
+
+with t1a:
+
+    st.metric(
+        "TP",
+        f"{trade_1_tp_count:,}"
+    )
+
+with t1b:
+
+    st.metric(
+        "SL",
+        f"{trade_1_sl_count:,}"
+    )
+
+with t1c:
+
+    st.metric(
+        "AMBIGUOUS",
+        f"{trade_1_ambiguous_count:,}"
+    )
+
+with t1d:
+
+    st.metric(
+        "NO EXIT",
+        f"{trade_1_no_exit_count:,}"
+    )
+
+
+# ============================================================
+# TRADE 2 SUMMARY
+# ============================================================
+
+st.subheader(
+    "Trade 2 — 1:4"
+)
+
+t2a, t2b, t2c, t2d = st.columns(4)
+
+with t2a:
+
+    st.metric(
+        "TP",
+        f"{trade_2_tp_count:,}"
+    )
+
+with t2b:
+
+    st.metric(
+        "SL",
+        f"{trade_2_sl_count:,}"
+    )
+
+with t2c:
+
+    st.metric(
+        "AMBIGUOUS",
+        f"{trade_2_ambiguous_count:,}"
+    )
+
+with t2d:
+
+    st.metric(
+        "NO EXIT",
+        f"{trade_2_no_exit_count:,}"
+    )
+
+
+# ============================================================
+# COMBINED R SUMMARY
+# ============================================================
+
+if len(trade_simulations) > 0:
+
+    completed_combined = (
+        trade_simulations[
+            "combined_r"
+        ].dropna()
+    )
+
+else:
+
+    completed_combined = pd.Series(
+        dtype=float
+    )
+
+
+if len(completed_combined) > 0:
+
+    combined_r_total = float(
+        completed_combined.sum()
+    )
+
+    combined_r_average = float(
+        completed_combined.mean()
+    )
+
+else:
+
+    combined_r_total = 0.0
+
+    combined_r_average = 0.0
+
+
+r1, r2, r3 = st.columns(3)
+
+with r1:
+
+    st.metric(
+        "Valid AOX Entries Simulated",
+        f"{len(trade_simulations):,}"
+    )
+
+with r2:
+
+    st.metric(
+        "Completed 2-Position Trades",
+        f"{len(completed_combined):,}"
+    )
+
+with r3:
+
+    st.metric(
+        "Combined R",
+        f"{combined_r_total:.2f}R"
+    )
+
+
+st.metric(
+    "Average Combined R / Completed Trade",
+    f"{combined_r_average:.2f}R"
+)
+
+
+# ============================================================
+# TRADE SIMULATION TABLE
+# ============================================================
+
+with st.expander(
+    "📋 View 2-Position SL/TP Simulation"
+):
+
+    trade_display_columns = [
+        "setup_id",
+        "setup_date",
+        "setup_time",
+        "direction",
+        "entry_level",
+        "entry_price",
+        "entry_datetime",
+
+        "trade_1_status",
+        "trade_1_sl",
+        "trade_1_tp",
+        "trade_1_exit_price",
+        "trade_1_exit_datetime",
+        "trade_1_result_r",
+
+        "trade_2_status",
+        "trade_2_sl",
+        "trade_2_tp",
+        "trade_2_exit_price",
+        "trade_2_exit_datetime",
+        "trade_2_result_r",
+
+        "combined_r"
+    ]
+
+    trade_display_columns = [
+        c
+        for c in trade_display_columns
+        if c in trade_simulations.columns
+    ]
+
+    st.dataframe(
+        trade_simulations[
+            trade_display_columns
+        ],
+        use_container_width=True
+    )
+
+
+# ============================================================
 # AOX CONFIGURATION
 # ============================================================
 
@@ -2314,7 +3053,8 @@ if manipulation_found_count > 0:
     st.success(
         "✅ Data → 8:30/9:30 Setup → "
         "Valid Pullback → C2 Manipulation → "
-        "AOX Fibonacci → First Valid AOX Entry "
+        "AOX Fibonacci → First Valid AOX Entry → "
+        "2-Position SL/TP Simulation "
         "pipeline loaded successfully."
     )
 
@@ -2331,7 +3071,7 @@ else:
 # ============================================================
 
 st.info(
-    "Next module: 2-position SL/TP simulation → "
-    "same-candle SL/TP ambiguity handling → "
-    "performance report."
+    "Next module: Performance report → "
+    "win rate → profit factor → net R → "
+    "drawdown → streaks → session/day/month breakdown."
 )
