@@ -1847,6 +1847,353 @@ with st.expander(
 
 
 # ============================================================
+# AOX FIRST VALID ENTRY DETECTION
+# ============================================================
+
+st.divider()
+
+st.header(
+    "🎯 AOX First Valid Entry Detection"
+)
+
+st.caption(
+    "हर setup में AOX के -0.21, -0.255 और -0.29 "
+    "entry levels में से पहला valid tap लिया जाएगा."
+)
+
+st.caption(
+    "एक ही 1-minute candle में multiple AOX entry levels "
+    "touch हों और OHLC से intrabar order निश्चित न हो, "
+    "तो entry AMBIGUOUS मानी जाएगी."
+)
+
+st.caption(
+    "AMBIGUOUS candle पर कोई level guess नहीं किया जाएगा."
+)
+
+
+# ============================================================
+# ENTRY DETECTION ROWS
+# ============================================================
+
+aox_entry_rows = []
+
+
+# ============================================================
+# PROCESS EVERY AOX SETUP
+# ============================================================
+
+for _, aox_row in aox_calculations.iterrows():
+
+    setup_id = int(
+        aox_row["setup_id"]
+    )
+
+    setup_date = (
+        aox_row["setup_date"]
+    )
+
+    setup_time = (
+        aox_row["setup_time"]
+    )
+
+    direction = (
+        aox_row["direction"]
+    )
+
+    pullback_bar_index = int(
+        aox_row["pullback_bar_index"]
+    )
+
+
+    # --------------------------------------------------------
+    # ENTRY LEVEL PRICE MAP
+    # --------------------------------------------------------
+
+    entry_levels = {
+        -0.210: float(
+            aox_row["aox_-0.210"]
+        ),
+        -0.255: float(
+            aox_row["aox_-0.255"]
+        ),
+        -0.290: float(
+            aox_row["aox_-0.290"]
+        )
+    }
+
+
+    # --------------------------------------------------------
+    # ONLY SEARCH AFTER THE VALID PULLBACK
+    # --------------------------------------------------------
+
+    future_bars = df[
+        df["bar_index"] > pullback_bar_index
+    ].copy()
+
+
+    if future_bars.empty:
+
+        aox_entry_rows.append(
+            {
+                "setup_id": setup_id,
+                "setup_date": setup_date,
+                "setup_time": setup_time,
+                "direction": direction,
+                "pullback_bar_index": pullback_bar_index,
+                "entry_found": False,
+                "entry_status": "NO_ENTRY",
+                "entry_level": None,
+                "entry_price": None,
+                "entry_bar_index": None,
+                "entry_datetime": None
+            }
+        )
+
+        continue
+
+
+    # --------------------------------------------------------
+    # FIND FIRST CANDLE TOUCHING AOX ENTRY LEVEL(S)
+    # --------------------------------------------------------
+
+    entry_found = False
+
+    entry_status = "NO_ENTRY"
+
+    selected_level = None
+
+    selected_price = None
+
+    selected_bar_index = None
+
+    selected_datetime = None
+
+
+    for _, candle in future_bars.iterrows():
+
+        candle_high = float(
+            candle["high"]
+        )
+
+        candle_low = float(
+            candle["low"]
+        )
+
+
+        touched_levels = []
+
+
+        # ----------------------------------------------------
+        # CHECK EVERY AOX ENTRY LEVEL
+        # ----------------------------------------------------
+
+        for level, level_price in entry_levels.items():
+
+            if (
+                candle_low
+                <= level_price
+                <= candle_high
+            ):
+
+                touched_levels.append(
+                    (
+                        level,
+                        level_price
+                    )
+                )
+
+
+        # ----------------------------------------------------
+        # NO AOX ENTRY LEVEL TOUCHED
+        # ----------------------------------------------------
+
+        if len(touched_levels) == 0:
+
+            continue
+
+
+        # ----------------------------------------------------
+        # EXACTLY ONE AOX ENTRY LEVEL TOUCHED
+        # ----------------------------------------------------
+
+        if len(touched_levels) == 1:
+
+            selected_level = float(
+                touched_levels[0][0]
+            )
+
+            selected_price = float(
+                touched_levels[0][1]
+            )
+
+            selected_bar_index = int(
+                candle["bar_index"]
+            )
+
+            selected_datetime = (
+                candle["datetime"]
+            )
+
+            entry_found = True
+
+            entry_status = "VALID_ENTRY"
+
+            break
+
+
+        # ----------------------------------------------------
+        # MULTIPLE ENTRY LEVELS TOUCHED IN SAME CANDLE
+        # ----------------------------------------------------
+
+        if len(touched_levels) > 1:
+
+            selected_bar_index = int(
+                candle["bar_index"]
+            )
+
+            selected_datetime = (
+                candle["datetime"]
+            )
+
+            entry_found = False
+
+            entry_status = "AMBIGUOUS"
+
+            break
+
+
+    # --------------------------------------------------------
+    # SAVE RESULT
+    # --------------------------------------------------------
+
+    aox_entry_rows.append(
+        {
+            "setup_id": setup_id,
+            "setup_date": setup_date,
+            "setup_time": setup_time,
+            "direction": direction,
+            "pullback_bar_index": pullback_bar_index,
+            "entry_found": entry_found,
+            "entry_status": entry_status,
+            "entry_level": selected_level,
+            "entry_price": selected_price,
+            "entry_bar_index": selected_bar_index,
+            "entry_datetime": selected_datetime
+        }
+    )
+
+
+# ============================================================
+# AOX ENTRY DATAFRAME
+# ============================================================
+
+aox_entries = pd.DataFrame(
+    aox_entry_rows
+)
+
+
+# ============================================================
+# AOX ENTRY SUMMARY
+# ============================================================
+
+if len(aox_entries) > 0:
+
+    valid_entry_count = int(
+        (
+            aox_entries[
+                "entry_status"
+            ]
+            == "VALID_ENTRY"
+        ).sum()
+    )
+
+    ambiguous_entry_count = int(
+        (
+            aox_entries[
+                "entry_status"
+            ]
+            == "AMBIGUOUS"
+        ).sum()
+    )
+
+    no_entry_count = int(
+        (
+            aox_entries[
+                "entry_status"
+            ]
+            == "NO_ENTRY"
+        ).sum()
+    )
+
+else:
+
+    valid_entry_count = 0
+    ambiguous_entry_count = 0
+    no_entry_count = 0
+
+
+e1, e2, e3 = st.columns(3)
+
+with e1:
+
+    st.metric(
+        "Valid AOX Entries",
+        f"{valid_entry_count:,}"
+    )
+
+with e2:
+
+    st.metric(
+        "Ambiguous Entries",
+        f"{ambiguous_entry_count:,}"
+    )
+
+with e3:
+
+    st.metric(
+        "No Entry",
+        f"{no_entry_count:,}"
+    )
+
+
+# ============================================================
+# AOX ENTRY TABLE
+# ============================================================
+
+with st.expander(
+    "📋 View AOX First Valid Entries"
+):
+
+    aox_entry_display = [
+        "setup_id",
+        "setup_date",
+        "setup_time",
+        "direction",
+        "pullback_bar_index",
+        "entry_found",
+        "entry_status",
+        "entry_level",
+        "entry_price",
+        "entry_bar_index",
+        "entry_datetime"
+    ]
+
+    aox_entry_display = [
+        c
+        for c in aox_entry_display
+        if c in aox_entries.columns
+    ]
+
+    st.dataframe(
+        aox_entries[
+            aox_entry_display
+        ],
+        use_container_width=True
+    )
+
+
+# ============================================================
 # AOX CONFIGURATION
 # ============================================================
 
@@ -1860,7 +2207,6 @@ st.success(
     "AOX customized Fibonacci price calculation "
     "successfully applied to every valid manipulation."
 )
-
 
 col1, col2, col3 = st.columns(3)
 
@@ -1968,7 +2314,7 @@ if manipulation_found_count > 0:
     st.success(
         "✅ Data → 8:30/9:30 Setup → "
         "Valid Pullback → C2 Manipulation → "
-        "AOX Fibonacci Calculation "
+        "AOX Fibonacci → First Valid AOX Entry "
         "pipeline loaded successfully."
     )
 
@@ -1985,8 +2331,7 @@ else:
 # ============================================================
 
 st.info(
-    "Next module: AOX first valid entry detection → "
-    "same-candle ambiguity handling → "
-    "2-position SL/TP simulation → "
+    "Next module: 2-position SL/TP simulation → "
+    "same-candle SL/TP ambiguity handling → "
     "performance report."
 )
