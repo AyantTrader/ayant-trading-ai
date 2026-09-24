@@ -34,10 +34,10 @@ SETUP_TIMES = [
 # ============================================================
 
 def find_column(df, possible_names):
-    """
-    Finds a matching column from a list of possible names.
-    """
-    lower_map = {str(c).strip().lower(): c for c in df.columns}
+    lower_map = {
+        str(c).strip().lower(): c
+        for c in df.columns
+    }
 
     for name in possible_names:
         if name.lower() in lower_map:
@@ -47,9 +47,7 @@ def find_column(df, possible_names):
 
 
 def normalize_datetime(df):
-    """
-    Converts datetime column to timezone-aware UTC.
-    """
+
     dt_col = find_column(
         df,
         [
@@ -66,12 +64,18 @@ def normalize_datetime(df):
             "Datetime column not found. Expected a column such as datetime."
         )
 
-    parsed = pd.to_datetime(df[dt_col], errors="coerce", utc=True)
+    parsed = pd.to_datetime(
+        df[dt_col],
+        errors="coerce",
+        utc=True
+    )
 
     if parsed.isna().any():
         bad_count = int(parsed.isna().sum())
+
         raise ValueError(
-            f"Datetime validation failed: {bad_count} invalid datetime values found."
+            f"Datetime validation failed: "
+            f"{bad_count} invalid datetime values found."
         )
 
     df = df.copy()
@@ -81,9 +85,6 @@ def normalize_datetime(df):
 
 
 def validate_ohlc(df):
-    """
-    Validates OHLC columns and converts them to numeric.
-    """
 
     open_col = find_column(df, ["open"])
     high_col = find_column(df, ["high"])
@@ -106,19 +107,39 @@ def validate_ohlc(df):
 
     if missing:
         raise ValueError(
-            "Missing OHLC columns: " + ", ".join(missing)
+            "Missing OHLC columns: "
+            + ", ".join(missing)
         )
 
     df = df.copy()
 
-    df["open"] = pd.to_numeric(df[open_col], errors="coerce")
-    df["high"] = pd.to_numeric(df[high_col], errors="coerce")
-    df["low"] = pd.to_numeric(df[low_col], errors="coerce")
-    df["close"] = pd.to_numeric(df[close_col], errors="coerce")
+    df["open"] = pd.to_numeric(
+        df[open_col],
+        errors="coerce"
+    )
 
-    if df[["open", "high", "low", "close"]].isna().any().any():
+    df["high"] = pd.to_numeric(
+        df[high_col],
+        errors="coerce"
+    )
+
+    df["low"] = pd.to_numeric(
+        df[low_col],
+        errors="coerce"
+    )
+
+    df["close"] = pd.to_numeric(
+        df[close_col],
+        errors="coerce"
+    )
+
+    if df[
+        ["open", "high", "low", "close"]
+    ].isna().any().any():
+
         raise ValueError(
-            "OHLC validation failed: non-numeric or missing OHLC values found."
+            "OHLC validation failed: "
+            "non-numeric or missing OHLC values found."
         )
 
     return df
@@ -145,12 +166,17 @@ if uploaded_file is None:
 # ============================================================
 
 try:
+
     df = pd.read_csv(uploaded_file)
 
     st.success("CSV loaded")
 
 except Exception as e:
-    st.error(f"CSV loading failed: {e}")
+
+    st.error(
+        f"CSV loading failed: {e}"
+    )
+
     st.stop()
 
 
@@ -159,12 +185,19 @@ except Exception as e:
 # ============================================================
 
 try:
+
     df = validate_ohlc(df)
 
-    st.success("OHLC validation complete")
+    st.success(
+        "OHLC validation complete"
+    )
 
 except Exception as e:
-    st.error(f"OHLC validation error: {e}")
+
+    st.error(
+        f"OHLC validation error: {e}"
+    )
+
     st.stop()
 
 
@@ -173,12 +206,19 @@ except Exception as e:
 # ============================================================
 
 try:
+
     df = normalize_datetime(df)
 
-    st.success("Datetime validation complete")
+    st.success(
+        "Datetime validation complete"
+    )
 
 except Exception as e:
-    st.error(f"Datetime validation error: {e}")
+
+    st.error(
+        f"Datetime validation error: {e}"
+    )
+
     st.stop()
 
 
@@ -186,22 +226,34 @@ except Exception as e:
 # SORT CHRONOLOGICALLY
 # ============================================================
 
-df = df.sort_values("datetime").reset_index(drop=True)
+df = (
+    df
+    .sort_values("datetime")
+    .reset_index(drop=True)
+)
 
-# Remove duplicate timestamps while keeping first occurrence.
-df = df.drop_duplicates(
-    subset=["datetime"],
-    keep="first"
-).reset_index(drop=True)
+df = (
+    df
+    .drop_duplicates(
+        subset=["datetime"],
+        keep="first"
+    )
+    .reset_index(drop=True)
+)
 
 
 # ============================================================
 # CHRONOLOGICAL BAR INDEX
 # ============================================================
 
-df["bar_index"] = np.arange(len(df), dtype=np.int64)
+df["bar_index"] = np.arange(
+    len(df),
+    dtype=np.int64
+)
 
-st.success("Chronological bar index created")
+st.success(
+    "Chronological bar index created"
+)
 
 
 # ============================================================
@@ -211,22 +263,32 @@ st.success("Chronological bar index created")
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.metric("Rows", f"{len(df):,}")
+
+    st.metric(
+        "Rows",
+        f"{len(df):,}"
+    )
 
 with c2:
+
     start_time = df["datetime"].iloc[0]
 
     st.metric(
         "Start",
-        start_time.strftime("%Y-%m-%d %H:%M")
+        start_time.strftime(
+            "%Y-%m-%d %H:%M"
+        )
     )
 
 with c3:
+
     end_time = df["datetime"].iloc[-1]
 
     st.metric(
         "End",
-        end_time.strftime("%Y-%m-%d %H:%M")
+        end_time.strftime(
+            "%Y-%m-%d %H:%M"
+        )
     )
 
 
@@ -234,13 +296,29 @@ with c3:
 # NEW YORK TIME
 # ============================================================
 
-df["ny_time"] = df["datetime"].dt.tz_convert(NY_TZ)
+df["ny_time"] = (
+    df["datetime"]
+    .dt
+    .tz_convert(NY_TZ)
+)
 
-df["ny_date"] = df["ny_time"].dt.date
+df["ny_date"] = (
+    df["ny_time"]
+    .dt
+    .date
+)
 
-df["ny_hour"] = df["ny_time"].dt.hour
+df["ny_hour"] = (
+    df["ny_time"]
+    .dt
+    .hour
+)
 
-df["ny_minute"] = df["ny_time"].dt.minute
+df["ny_minute"] = (
+    df["ny_time"]
+    .dt
+    .minute
+)
 
 
 # ============================================================
@@ -249,16 +327,18 @@ df["ny_minute"] = df["ny_time"].dt.minute
 
 st.divider()
 
-st.header("🔎 Valid Pullback Detection")
-
-st.caption(
-    "Bullish: C2 sweeps C1 Low without closing below it, "
-    "then C3 closes above C1 High."
+st.header(
+    "🔎 Valid Pullback Detection"
 )
 
 st.caption(
-    "Bearish: C2 sweeps C1 High without closing above it, "
-    "then C3 closes below C1 Low."
+    "Bullish: C2 sweeps C1 Low without "
+    "closing below it, then C3 closes above C1 High."
+)
+
+st.caption(
+    "Bearish: C2 sweeps C1 High without "
+    "closing above it, then C3 closes below C1 Low."
 )
 
 
@@ -312,7 +392,9 @@ bullish_signals = df.loc[
     bullish_mask
 ].copy()
 
-bullish_signals["direction"] = "Bullish"
+bullish_signals["direction"] = (
+    "Bullish"
+)
 
 bullish_signals["c1_bar_index"] = (
     bullish_signals["bar_index"] - 2
@@ -366,16 +448,13 @@ bullish_signals["c3_close"] = (
 # BUILD BEARISH SIGNAL TABLE
 # ============================================================
 
-# IMPORTANT:
-# Every column here uses bearish_mask.
-# This prevents the previous:
-# "All arrays must be of the same length" error.
-
 bearish_signals = df.loc[
     bearish_mask
 ].copy()
 
-bearish_signals["direction"] = "Bearish"
+bearish_signals["direction"] = (
+    "Bearish"
+)
 
 bearish_signals["c1_bar_index"] = (
     bearish_signals["bar_index"] - 2
@@ -438,37 +517,48 @@ pullbacks = pd.concat(
     ignore_index=True
 )
 
-pullbacks = pullbacks.sort_values(
-    "bar_index"
-).reset_index(drop=True)
+pullbacks = (
+    pullbacks
+    .sort_values("bar_index")
+    .reset_index(drop=True)
+)
 
 
 # ============================================================
 # PULLBACK SUMMARY
 # ============================================================
 
-total_pullbacks = len(pullbacks)
+total_pullbacks = len(
+    pullbacks
+)
 
-bullish_count = len(bullish_signals)
+bullish_count = len(
+    bullish_signals
+)
 
-bearish_count = len(bearish_signals)
+bearish_count = len(
+    bearish_signals
+)
 
 
 m1, m2, m3 = st.columns(3)
 
 with m1:
+
     st.metric(
         "Total Valid Pullbacks",
         f"{total_pullbacks:,}"
     )
 
 with m2:
+
     st.metric(
         "Bullish",
         f"{bullish_count:,}"
     )
 
 with m3:
+
     st.metric(
         "Bearish",
         f"{bearish_count:,}"
@@ -479,7 +569,9 @@ with m3:
 # PULLBACK TABLE
 # ============================================================
 
-with st.expander("📋 View Valid Pullbacks"):
+with st.expander(
+    "📋 View Valid Pullbacks"
+):
 
     display_columns = [
         "datetime",
@@ -496,12 +588,15 @@ with st.expander("📋 View Valid Pullbacks"):
     ]
 
     available_columns = [
-        c for c in display_columns
+        c
+        for c in display_columns
         if c in pullbacks.columns
     ]
 
     st.dataframe(
-        pullbacks[available_columns].head(100),
+        pullbacks[
+            available_columns
+        ].head(100),
         use_container_width=True
     )
 
@@ -512,7 +607,9 @@ with st.expander("📋 View Valid Pullbacks"):
 
 st.divider()
 
-st.header("🕣 8:30 / 9:30 NY Setup Detection")
+st.header(
+    "🕣 8:30 / 9:30 NY Setup Detection"
+)
 
 
 setup_mask = (
@@ -556,7 +653,9 @@ st.metric(
 )
 
 
-with st.expander("📋 View Setup Candles"):
+with st.expander(
+    "📋 View Setup Candles"
+):
 
     setup_display = [
         "datetime",
@@ -571,7 +670,8 @@ with st.expander("📋 View Setup Candles"):
     ]
 
     setup_display = [
-        c for c in setup_display
+        c
+        for c in setup_display
         if c in setups.columns
     ]
 
@@ -587,16 +687,19 @@ with st.expander("📋 View Setup Candles"):
 
 st.divider()
 
-st.header("🔗 Setup → After-Setup Valid Pullback")
-
-st.caption(
-    "हर 8:30 / 9:30 setup के बाद उसी New York calendar date "
-    "में आने वाला पहला valid pullback लिया जाएगा."
+st.header(
+    "🔗 Setup → After-Setup Valid Pullback"
 )
 
 st.caption(
-    "Setup के बाद वाला LEFT-SIDE manipulation leg आगे AOX module "
-    "में इस्तेमाल होगा. यहाँ अभी सिर्फ setup → pullback association है."
+    "हर 8:30 / 9:30 setup के बाद उसी "
+    "New York calendar date में आने वाला "
+    "पहला valid pullback लिया जाएगा."
+)
+
+st.caption(
+    "यहाँ valid pullback manipulation leg को "
+    "confirm/complete करता है."
 )
 
 
@@ -672,35 +775,43 @@ after_setup = pd.DataFrame(
 if len(after_setup) > 0:
 
     found_count = int(
-        after_setup["pullback_found"].sum()
+        after_setup[
+            "pullback_found"
+        ].sum()
     )
 
     not_found_count = (
-        len(after_setup) - found_count
+        len(after_setup)
+        - found_count
     )
 
     a1, a2, a3 = st.columns(3)
 
     with a1:
+
         st.metric(
             "Setup Candles",
             f"{len(after_setup):,}"
         )
 
     with a2:
+
         st.metric(
             "After-Setup Pullback Found",
             f"{found_count:,}"
         )
 
     with a3:
+
         st.metric(
             "No Pullback Found",
             f"{not_found_count:,}"
         )
 
 
-    with st.expander("📋 View Setup → Pullback Mapping"):
+    with st.expander(
+        "📋 View Setup → Pullback Mapping"
+    ):
 
         st.dataframe(
             after_setup,
@@ -709,16 +820,565 @@ if len(after_setup) > 0:
 
 
 # ============================================================
+# SWING DETECTION
+# ============================================================
+
+st.divider()
+
+st.header(
+    "📌 Swing Detection"
+)
+
+st.caption(
+    "Swing High = बीच वाली candle का High "
+    "उसकी left और right candle के High से बड़ा."
+)
+
+st.caption(
+    "Swing Low = बीच वाली candle का Low "
+    "उसकी left और right candle के Low से छोटा."
+)
+
+
+# ------------------------------------------------------------
+# Confirmed swing definitions
+# ------------------------------------------------------------
+
+df["swing_high"] = (
+    (df["high"] > df["high"].shift(1))
+    &
+    (df["high"] > df["high"].shift(-1))
+)
+
+df["swing_low"] = (
+    (df["low"] < df["low"].shift(1))
+    &
+    (df["low"] < df["low"].shift(-1))
+)
+
+
+swing_high_count = int(
+    df["swing_high"].sum()
+)
+
+swing_low_count = int(
+    df["swing_low"].sum()
+)
+
+
+s1, s2 = st.columns(2)
+
+with s1:
+
+    st.metric(
+        "Swing Highs",
+        f"{swing_high_count:,}"
+    )
+
+with s2:
+
+    st.metric(
+        "Swing Lows",
+        f"{swing_low_count:,}"
+    )
+
+
+# ============================================================
+# LEFT-SIDE MANIPULATION
+# ============================================================
+
+st.divider()
+
+st.header(
+    "🧭 LEFT-SIDE Manipulation Detection"
+)
+
+st.caption(
+    "Setup → latest relevant swing pair → "
+    "valid pullback confirmation."
+)
+
+st.caption(
+    "Bullish = latest Swing High के बाद latest Swing Low → High → Low"
+)
+
+st.caption(
+    "Bearish = latest Swing Low के बाद latest Swing High → Low → High"
+)
+
+
+manipulation_rows = []
+
+
+# ============================================================
+# PROCESS EACH SETUP
+# ============================================================
+
+for _, setup in setups.iterrows():
+
+    setup_id = int(
+        setup["setup_id"]
+    )
+
+    setup_date = setup["ny_date"]
+
+    setup_time = setup["setup_time"]
+
+    setup_bar_index = int(
+        setup["bar_index"]
+    )
+
+
+    # --------------------------------------------------------
+    # Find associated pullback
+    # --------------------------------------------------------
+
+    setup_pullback = after_setup[
+        after_setup["setup_id"] == setup_id
+    ]
+
+
+    if setup_pullback.empty:
+
+        manipulation_rows.append(
+            {
+                "setup_id": setup_id,
+                "setup_date": setup_date,
+                "setup_time": setup_time,
+                "direction": None,
+                "pullback_bar_index": None,
+                "swing_1_type": None,
+                "swing_1_bar_index": None,
+                "swing_1_price": None,
+                "swing_2_type": None,
+                "swing_2_bar_index": None,
+                "swing_2_price": None,
+                "manipulation_leg": None,
+                "manipulation_found": False
+            }
+        )
+
+        continue
+
+
+    pullback_info = setup_pullback.iloc[0]
+
+
+    if not bool(
+        pullback_info["pullback_found"]
+    ):
+
+        manipulation_rows.append(
+            {
+                "setup_id": setup_id,
+                "setup_date": setup_date,
+                "setup_time": setup_time,
+                "direction": None,
+                "pullback_bar_index": None,
+                "swing_1_type": None,
+                "swing_1_bar_index": None,
+                "swing_1_price": None,
+                "swing_2_type": None,
+                "swing_2_bar_index": None,
+                "swing_2_price": None,
+                "manipulation_leg": None,
+                "manipulation_found": False
+            }
+        )
+
+        continue
+
+
+    direction = (
+        pullback_info[
+            "pullback_direction"
+        ]
+    )
+
+    pullback_bar_index = int(
+        pullback_info[
+            "pullback_bar_index"
+        ]
+    )
+
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # A swing needs a candle on its right.
+    #
+    # Therefore only swings whose right-side confirmation
+    # candle has already occurred before the pullback
+    # confirmation are eligible.
+    #
+    # Swing center <= pullback_bar_index - 2
+    # --------------------------------------------------------
+
+    eligible_end = (
+        pullback_bar_index - 2
+    )
+
+
+    if eligible_end <= setup_bar_index:
+
+        manipulation_rows.append(
+            {
+                "setup_id": setup_id,
+                "setup_date": setup_date,
+                "setup_time": setup_time,
+                "direction": direction,
+                "pullback_bar_index": pullback_bar_index,
+                "swing_1_type": None,
+                "swing_1_bar_index": None,
+                "swing_1_price": None,
+                "swing_2_type": None,
+                "swing_2_bar_index": None,
+                "swing_2_price": None,
+                "manipulation_leg": None,
+                "manipulation_found": False
+            }
+        )
+
+        continue
+
+
+    swing_window = df[
+        (df["bar_index"] > setup_bar_index)
+        &
+        (df["bar_index"] <= eligible_end)
+        &
+        (
+            df["swing_high"]
+            |
+            df["swing_low"]
+        )
+    ].copy()
+
+
+    # --------------------------------------------------------
+    # BULLISH:
+    # Latest Swing High
+    # followed by
+    # Latest Swing Low
+    # --------------------------------------------------------
+
+    if direction == "Bullish":
+
+        swing_highs = swing_window[
+            swing_window["swing_high"]
+        ]
+
+        if swing_highs.empty:
+
+            manipulation_rows.append(
+                {
+                    "setup_id": setup_id,
+                    "setup_date": setup_date,
+                    "setup_time": setup_time,
+                    "direction": direction,
+                    "pullback_bar_index": pullback_bar_index,
+                    "swing_1_type": None,
+                    "swing_1_bar_index": None,
+                    "swing_1_price": None,
+                    "swing_2_type": None,
+                    "swing_2_bar_index": None,
+                    "swing_2_price": None,
+                    "manipulation_leg": None,
+                    "manipulation_found": False
+                }
+            )
+
+            continue
+
+
+        latest_high = (
+            swing_highs
+            .sort_values("bar_index")
+            .iloc[-1]
+        )
+
+
+        swing_lows_after_high = swing_window[
+            (swing_window["swing_low"])
+            &
+            (
+                swing_window["bar_index"]
+                > int(latest_high["bar_index"])
+            )
+        ]
+
+
+        if swing_lows_after_high.empty:
+
+            manipulation_rows.append(
+                {
+                    "setup_id": setup_id,
+                    "setup_date": setup_date,
+                    "setup_time": setup_time,
+                    "direction": direction,
+                    "pullback_bar_index": pullback_bar_index,
+                    "swing_1_type": "Swing High",
+                    "swing_1_bar_index": int(
+                        latest_high["bar_index"]
+                    ),
+                    "swing_1_price": float(
+                        latest_high["high"]
+                    ),
+                    "swing_2_type": None,
+                    "swing_2_bar_index": None,
+                    "swing_2_price": None,
+                    "manipulation_leg": None,
+                    "manipulation_found": False
+                }
+            )
+
+            continue
+
+
+        latest_low = (
+            swing_lows_after_high
+            .sort_values("bar_index")
+            .iloc[-1]
+        )
+
+
+        manipulation_rows.append(
+            {
+                "setup_id": setup_id,
+                "setup_date": setup_date,
+                "setup_time": setup_time,
+                "direction": direction,
+                "pullback_bar_index": pullback_bar_index,
+                "swing_1_type": "Swing High",
+                "swing_1_bar_index": int(
+                    latest_high["bar_index"]
+                ),
+                "swing_1_price": float(
+                    latest_high["high"]
+                ),
+                "swing_2_type": "Swing Low",
+                "swing_2_bar_index": int(
+                    latest_low["bar_index"]
+                ),
+                "swing_2_price": float(
+                    latest_low["low"]
+                ),
+                "manipulation_leg": "High → Low",
+                "manipulation_found": True
+            }
+        )
+
+
+    # --------------------------------------------------------
+    # BEARISH:
+    # Latest Swing Low
+    # followed by
+    # Latest Swing High
+    # --------------------------------------------------------
+
+    elif direction == "Bearish":
+
+        swing_lows = swing_window[
+            swing_window["swing_low"]
+        ]
+
+        if swing_lows.empty:
+
+            manipulation_rows.append(
+                {
+                    "setup_id": setup_id,
+                    "setup_date": setup_date,
+                    "setup_time": setup_time,
+                    "direction": direction,
+                    "pullback_bar_index": pullback_bar_index,
+                    "swing_1_type": None,
+                    "swing_1_bar_index": None,
+                    "swing_1_price": None,
+                    "swing_2_type": None,
+                    "swing_2_bar_index": None,
+                    "swing_2_price": None,
+                    "manipulation_leg": None,
+                    "manipulation_found": False
+                }
+            )
+
+            continue
+
+
+        latest_low = (
+            swing_lows
+            .sort_values("bar_index")
+            .iloc[-1]
+        )
+
+
+        swing_highs_after_low = swing_window[
+            (swing_window["swing_high"])
+            &
+            (
+                swing_window["bar_index"]
+                > int(latest_low["bar_index"])
+            )
+        ]
+
+
+        if swing_highs_after_low.empty:
+
+            manipulation_rows.append(
+                {
+                    "setup_id": setup_id,
+                    "setup_date": setup_date,
+                    "setup_time": setup_time,
+                    "direction": direction,
+                    "pullback_bar_index": pullback_bar_index,
+                    "swing_1_type": "Swing Low",
+                    "swing_1_bar_index": int(
+                        latest_low["bar_index"]
+                    ),
+                    "swing_1_price": float(
+                        latest_low["low"]
+                    ),
+                    "swing_2_type": None,
+                    "swing_2_bar_index": None,
+                    "swing_2_price": None,
+                    "manipulation_leg": None,
+                    "manipulation_found": False
+                }
+            )
+
+            continue
+
+
+        latest_high = (
+            swing_highs_after_low
+            .sort_values("bar_index")
+            .iloc[-1]
+        )
+
+
+        manipulation_rows.append(
+            {
+                "setup_id": setup_id,
+                "setup_date": setup_date,
+                "setup_time": setup_time,
+                "direction": direction,
+                "pullback_bar_index": pullback_bar_index,
+                "swing_1_type": "Swing Low",
+                "swing_1_bar_index": int(
+                    latest_low["bar_index"]
+                ),
+                "swing_1_price": float(
+                    latest_low["low"]
+                ),
+                "swing_2_type": "Swing High",
+                "swing_2_bar_index": int(
+                    latest_high["bar_index"]
+                ),
+                "swing_2_price": float(
+                    latest_high["high"]
+                ),
+                "manipulation_leg": "Low → High",
+                "manipulation_found": True
+            }
+        )
+
+
+    else:
+
+        manipulation_rows.append(
+            {
+                "setup_id": setup_id,
+                "setup_date": setup_date,
+                "setup_time": setup_time,
+                "direction": direction,
+                "pullback_bar_index": pullback_bar_index,
+                "swing_1_type": None,
+                "swing_1_bar_index": None,
+                "swing_1_price": None,
+                "swing_2_type": None,
+                "swing_2_bar_index": None,
+                "swing_2_price": None,
+                "manipulation_leg": None,
+                "manipulation_found": False
+            }
+        )
+
+
+# ============================================================
+# MANIPULATION DATAFRAME
+# ============================================================
+
+manipulation = pd.DataFrame(
+    manipulation_rows
+)
+
+
+# ============================================================
+# MANIPULATION SUMMARY
+# ============================================================
+
+manipulation_found_count = int(
+    manipulation[
+        "manipulation_found"
+    ].sum()
+)
+
+manipulation_not_found_count = (
+    len(manipulation)
+    - manipulation_found_count
+)
+
+
+m1, m2, m3 = st.columns(3)
+
+with m1:
+
+    st.metric(
+        "Total Setups",
+        f"{len(manipulation):,}"
+    )
+
+with m2:
+
+    st.metric(
+        "Manipulation Found",
+        f"{manipulation_found_count:,}"
+    )
+
+with m3:
+
+    st.metric(
+        "Manipulation Not Found",
+        f"{manipulation_not_found_count:,}"
+    )
+
+
+# ============================================================
+# MANIPULATION TABLE
+# ============================================================
+
+with st.expander(
+    "📋 View LEFT-SIDE Manipulation Mapping"
+):
+
+    st.dataframe(
+        manipulation,
+        use_container_width=True
+    )
+
+
+# ============================================================
 # AOX CONFIGURATION
 # ============================================================
 
 st.divider()
 
-st.header("📐 AOX Configuration")
+st.header(
+    "📐 AOX Configuration"
+)
 
 st.info(
-    "AOX module अगले चरण में इसी setup-after-pullback structure "
-    "पर apply किया जाएगा."
+    "AOX अभी calculation नहीं कर रहा है. "
+    "पहले LEFT-SIDE manipulation mapping verify की जा रही है."
 )
 
 
@@ -753,12 +1413,24 @@ AOX_TARGET_REFERENCE_LEVELS = [
 col1, col2 = st.columns(2)
 
 with col1:
-    st.write("**AOX Entry Levels**")
-    st.write(AOX_ENTRY_LEVELS)
+
+    st.write(
+        "**AOX Entry Levels**"
+    )
+
+    st.write(
+        AOX_ENTRY_LEVELS
+    )
 
 with col2:
-    st.write("**AOX Reference Levels**")
-    st.write(AOX_TARGET_REFERENCE_LEVELS)
+
+    st.write(
+        "**AOX Reference Levels**"
+    )
+
+    st.write(
+        AOX_TARGET_REFERENCE_LEVELS
+    )
 
 
 # ============================================================
@@ -767,21 +1439,47 @@ with col2:
 
 st.divider()
 
-st.header("🎯 Trade Management")
+st.header(
+    "🎯 Trade Management"
+)
 
 t1, t2 = st.columns(2)
 
 with t1:
-    st.write("**Trade 1**")
-    st.write("SL = 5.000 price distance")
-    st.write("TP = 15.000 price distance")
-    st.write("Risk : Reward = 1 : 3")
+
+    st.write(
+        "**Trade 1**"
+    )
+
+    st.write(
+        "SL = 5.000 price distance"
+    )
+
+    st.write(
+        "TP = 15.000 price distance"
+    )
+
+    st.write(
+        "Risk : Reward = 1 : 3"
+    )
 
 with t2:
-    st.write("**Trade 2**")
-    st.write("SL = 5.000 price distance")
-    st.write("TP = 20.000 price distance")
-    st.write("Risk : Reward = 1 : 4")
+
+    st.write(
+        "**Trade 2**"
+    )
+
+    st.write(
+        "SL = 5.000 price distance"
+    )
+
+    st.write(
+        "TP = 20.000 price distance"
+    )
+
+    st.write(
+        "Risk : Reward = 1 : 4"
+    )
 
 
 # ============================================================
@@ -790,12 +1488,23 @@ with t2:
 
 st.divider()
 
-st.success(
-    "✅ Data → Valid Pullback → 8:30/9:30 Setup → "
-    "After-Setup Pullback pipeline loaded successfully."
-)
+if manipulation_found_count > 0:
+
+    st.success(
+        "✅ Data → Valid Pullback → Setup → "
+        "Latest Swing → LEFT-SIDE Manipulation "
+        "pipeline loaded successfully."
+    )
+
+else:
+
+    st.warning(
+        "⚠️ No LEFT-SIDE manipulation pair was found "
+        "under the current swing definition."
+    )
+
 
 st.info(
-    "Next module: LEFT-SIDE manipulation → AOX → Entry detection → "
-    "SL/TP simulation → Performance report."
+    "Next module: AOX Fibonacci → First valid AOX entry → "
+    "2-position SL/TP simulation → Performance report."
 )
