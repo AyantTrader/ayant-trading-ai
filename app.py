@@ -2931,6 +2931,821 @@ with st.expander(
         use_container_width=True
     )
 
+# ============================================================
+# PERFORMANCE REPORT
+# ============================================================
+
+st.divider()
+
+st.header(
+    "📈 Performance Report"
+)
+
+st.caption(
+    "Performance केवल completed 2-position trades पर "
+    "calculate की जाएगी."
+)
+
+
+# ============================================================
+# PERFORMANCE DATA
+# ============================================================
+
+performance_df = trade_simulations.copy()
+
+
+if len(performance_df) > 0:
+
+    completed_performance = (
+        performance_df[
+            performance_df["combined_r"].notna()
+        ].copy()
+    )
+
+else:
+
+    completed_performance = pd.DataFrame()
+
+
+# ============================================================
+# BASIC PERFORMANCE METRICS
+# ============================================================
+
+if len(completed_performance) > 0:
+
+    total_completed_trades = len(
+        completed_performance
+    )
+
+    net_r = float(
+        completed_performance[
+            "combined_r"
+        ].sum()
+    )
+
+    average_r = float(
+        completed_performance[
+            "combined_r"
+        ].mean()
+    )
+
+    winning_trades = int(
+        (
+            completed_performance[
+                "combined_r"
+            ] > 0
+        ).sum()
+    )
+
+    losing_trades = int(
+        (
+            completed_performance[
+                "combined_r"
+            ] < 0
+        ).sum()
+    )
+
+    breakeven_trades = int(
+        (
+            completed_performance[
+                "combined_r"
+            ] == 0
+        ).sum()
+    )
+
+    win_rate = (
+        winning_trades
+        /
+        total_completed_trades
+        *
+        100
+    )
+
+else:
+
+    total_completed_trades = 0
+
+    net_r = 0.0
+
+    average_r = 0.0
+
+    winning_trades = 0
+
+    losing_trades = 0
+
+    breakeven_trades = 0
+
+    win_rate = 0.0
+
+
+# ============================================================
+# PROFIT FACTOR
+# ============================================================
+
+if len(completed_performance) > 0:
+
+    gross_profit = float(
+        completed_performance.loc[
+            completed_performance[
+                "combined_r"
+            ] > 0,
+            "combined_r"
+        ].sum()
+    )
+
+    gross_loss = abs(
+        float(
+            completed_performance.loc[
+                completed_performance[
+                    "combined_r"
+                ] < 0,
+                "combined_r"
+            ].sum()
+        )
+    )
+
+else:
+
+    gross_profit = 0.0
+
+    gross_loss = 0.0
+
+
+if gross_loss > 0:
+
+    profit_factor = (
+        gross_profit
+        /
+        gross_loss
+    )
+
+elif gross_profit > 0:
+
+    profit_factor = np.inf
+
+else:
+
+    profit_factor = 0.0
+
+
+# ============================================================
+# MAX DRAWDOWN
+# ============================================================
+
+if len(completed_performance) > 0:
+
+    equity_curve = (
+        completed_performance[
+            "combined_r"
+        ]
+        .astype(float)
+        .cumsum()
+    )
+
+    running_peak = (
+        equity_curve
+        .cummax()
+    )
+
+    drawdown = (
+        equity_curve
+        - running_peak
+    )
+
+    max_drawdown = float(
+        drawdown.min()
+    )
+
+else:
+
+    equity_curve = pd.Series(
+        dtype=float
+    )
+
+    drawdown = pd.Series(
+        dtype=float
+    )
+
+    max_drawdown = 0.0
+
+
+# ============================================================
+# STREAK CALCULATION
+# ============================================================
+
+def calculate_streaks(results):
+
+    max_win_streak = 0
+
+    max_loss_streak = 0
+
+    current_win_streak = 0
+
+    current_loss_streak = 0
+
+
+    for result in results:
+
+        if result > 0:
+
+            current_win_streak += 1
+
+            current_loss_streak = 0
+
+        elif result < 0:
+
+            current_loss_streak += 1
+
+            current_win_streak = 0
+
+        else:
+
+            current_win_streak = 0
+
+            current_loss_streak = 0
+
+
+        if (
+            current_win_streak
+            > max_win_streak
+        ):
+
+            max_win_streak = (
+                current_win_streak
+            )
+
+
+        if (
+            current_loss_streak
+            > max_loss_streak
+        ):
+
+            max_loss_streak = (
+                current_loss_streak
+            )
+
+
+    return (
+        max_win_streak,
+        max_loss_streak
+    )
+
+
+if len(completed_performance) > 0:
+
+    (
+        max_win_streak,
+        max_loss_streak
+    ) = calculate_streaks(
+        completed_performance[
+            "combined_r"
+        ].tolist()
+    )
+
+else:
+
+    max_win_streak = 0
+
+    max_loss_streak = 0
+
+
+# ============================================================
+# MAIN PERFORMANCE METRICS
+# ============================================================
+
+p1, p2, p3, p4 = st.columns(4)
+
+with p1:
+
+    st.metric(
+        "Completed Trades",
+        f"{total_completed_trades:,}"
+    )
+
+with p2:
+
+    st.metric(
+        "Win Rate",
+        f"{win_rate:.2f}%"
+    )
+
+with p3:
+
+    if np.isinf(profit_factor):
+
+        pf_display = "∞"
+
+    else:
+
+        pf_display = (
+            f"{profit_factor:.2f}"
+        )
+
+    st.metric(
+        "Profit Factor",
+        pf_display
+    )
+
+with p4:
+
+    st.metric(
+        "Net R",
+        f"{net_r:.2f}R"
+    )
+
+
+p5, p6, p7, p8 = st.columns(4)
+
+with p5:
+
+    st.metric(
+        "Average R",
+        f"{average_r:.2f}R"
+    )
+
+with p6:
+
+    st.metric(
+        "Max Drawdown",
+        f"{max_drawdown:.2f}R"
+    )
+
+with p7:
+
+    st.metric(
+        "Max Win Streak",
+        f"{max_win_streak}"
+    )
+
+with p8:
+
+    st.metric(
+        "Max Loss Streak",
+        f"{max_loss_streak}"
+    )
+
+
+# ============================================================
+# WIN / LOSS BREAKDOWN
+# ============================================================
+
+st.subheader(
+    "📊 Win / Loss Breakdown"
+)
+
+w1, w2, w3 = st.columns(3)
+
+with w1:
+
+    st.metric(
+        "Winning Trades",
+        f"{winning_trades:,}"
+    )
+
+with w2:
+
+    st.metric(
+        "Losing Trades",
+        f"{losing_trades:,}"
+    )
+
+with w3:
+
+    st.metric(
+        "Breakeven Trades",
+        f"{breakeven_trades:,}"
+    )
+
+
+# ============================================================
+# EQUITY CURVE DATA
+# ============================================================
+
+st.subheader(
+    "📈 Equity Curve"
+)
+
+if len(completed_performance) > 0:
+
+    equity_display = completed_performance[
+        [
+            "setup_id",
+            "setup_date",
+            "setup_time",
+            "direction",
+            "entry_datetime",
+            "combined_r"
+        ]
+    ].copy()
+
+    equity_display[
+        "equity_r"
+    ] = (
+        equity_display[
+            "combined_r"
+        ]
+        .cumsum()
+    )
+
+    st.line_chart(
+        equity_display[
+            "equity_r"
+        ]
+    )
+
+else:
+
+    st.info(
+        "Equity curve के लिए कोई completed "
+        "2-position trade उपलब्ध नहीं है."
+    )
+
+
+# ============================================================
+# 8:30 / 9:30 PERFORMANCE BREAKDOWN
+# ============================================================
+
+st.subheader(
+    "🕣 Setup Time Performance"
+)
+
+if len(completed_performance) > 0:
+
+    session_rows = []
+
+    for session_time in [
+        "8:30",
+        "9:30"
+    ]:
+
+        session_data = (
+            completed_performance[
+                completed_performance[
+                    "setup_time"
+                ]
+                == session_time
+            ]
+        )
+
+        session_trade_count = len(
+            session_data
+        )
+
+        if session_trade_count > 0:
+
+            session_wins = int(
+                (
+                    session_data[
+                        "combined_r"
+                    ] > 0
+                ).sum()
+            )
+
+            session_win_rate = (
+                session_wins
+                /
+                session_trade_count
+                *
+                100
+            )
+
+            session_net_r = float(
+                session_data[
+                    "combined_r"
+                ].sum()
+            )
+
+            session_avg_r = float(
+                session_data[
+                    "combined_r"
+                ].mean()
+            )
+
+        else:
+
+            session_win_rate = 0.0
+
+            session_net_r = 0.0
+
+            session_avg_r = 0.0
+
+
+        session_rows.append(
+            {
+                "setup_time": session_time,
+                "trades": session_trade_count,
+                "win_rate_%": (
+                    session_win_rate
+                ),
+                "net_r": session_net_r,
+                "average_r": session_avg_r
+            }
+        )
+
+
+    session_report = pd.DataFrame(
+        session_rows
+    )
+
+    st.dataframe(
+        session_report,
+        use_container_width=True
+    )
+
+else:
+
+    st.info(
+        "Setup-time performance के लिए "
+        "completed trades उपलब्ध नहीं हैं."
+    )
+
+
+# ============================================================
+# DAY OF WEEK PERFORMANCE
+# ============================================================
+
+st.subheader(
+    "📅 Day-of-Week Performance"
+)
+
+if len(completed_performance) > 0:
+
+    day_data = (
+        completed_performance
+        .copy()
+    )
+
+    day_data[
+        "day_of_week"
+    ] = pd.to_datetime(
+        day_data[
+            "setup_date"
+        ]
+    ).dt.day_name()
+
+
+    day_order = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+    ]
+
+
+    day_rows = []
+
+
+    for day in day_order:
+
+        day_trades = day_data[
+            day_data[
+                "day_of_week"
+            ] == day
+        ]
+
+        trade_count = len(
+            day_trades
+        )
+
+        if trade_count > 0:
+
+            wins = int(
+                (
+                    day_trades[
+                        "combined_r"
+                    ] > 0
+                ).sum()
+            )
+
+            day_win_rate = (
+                wins
+                /
+                trade_count
+                *
+                100
+            )
+
+            day_net_r = float(
+                day_trades[
+                    "combined_r"
+                ].sum()
+            )
+
+            day_average_r = float(
+                day_trades[
+                    "combined_r"
+                ].mean()
+            )
+
+        else:
+
+            day_win_rate = 0.0
+
+            day_net_r = 0.0
+
+            day_average_r = 0.0
+
+
+        day_rows.append(
+            {
+                "day": day,
+                "trades": trade_count,
+                "win_rate_%": (
+                    day_win_rate
+                ),
+                "net_r": day_net_r,
+                "average_r": (
+                    day_average_r
+                )
+            }
+        )
+
+
+    day_report = pd.DataFrame(
+        day_rows
+    )
+
+
+    st.dataframe(
+        day_report,
+        use_container_width=True
+    )
+
+else:
+
+    st.info(
+        "Day-of-week performance के लिए "
+        "completed trades उपलब्ध नहीं हैं."
+    )
+
+
+# ============================================================
+# MONTHLY PERFORMANCE
+# ============================================================
+
+st.subheader(
+    "📆 Monthly Performance"
+)
+
+if len(completed_performance) > 0:
+
+    month_data = (
+        completed_performance
+        .copy()
+    )
+
+    month_data[
+        "month"
+    ] = pd.to_datetime(
+        month_data[
+            "setup_date"
+        ]
+    ).dt.to_period(
+        "M"
+    ).astype(str)
+
+
+    month_rows = []
+
+
+    for month in sorted(
+        month_data[
+            "month"
+        ].unique()
+    ):
+
+        month_trades = month_data[
+            month_data[
+                "month"
+            ] == month
+        ]
+
+        trade_count = len(
+            month_trades
+        )
+
+        wins = int(
+            (
+                month_trades[
+                    "combined_r"
+                ] > 0
+            ).sum()
+        )
+
+        month_win_rate = (
+            wins
+            /
+            trade_count
+            *
+            100
+        )
+
+        month_net_r = float(
+            month_trades[
+                "combined_r"
+            ].sum()
+        )
+
+        month_average_r = float(
+            month_trades[
+                "combined_r"
+            ].mean()
+        )
+
+
+        month_rows.append(
+            {
+                "month": month,
+                "trades": trade_count,
+                "win_rate_%": (
+                    month_win_rate
+                ),
+                "net_r": month_net_r,
+                "average_r": (
+                    month_average_r
+                )
+            }
+        )
+
+
+    month_report = pd.DataFrame(
+        month_rows
+    )
+
+
+    st.dataframe(
+        month_report,
+        use_container_width=True
+    )
+
+else:
+
+    st.info(
+        "Monthly performance के लिए "
+        "completed trades उपलब्ध नहीं हैं."
+    )
+
+
+# ============================================================
+# PERFORMANCE SUMMARY TABLE
+# ============================================================
+
+with st.expander(
+    "📋 View Completed Trade Performance"
+):
+
+    if len(completed_performance) > 0:
+
+        performance_display_columns = [
+            "setup_id",
+            "setup_date",
+            "setup_time",
+            "direction",
+            "entry_price",
+            "entry_datetime",
+            "trade_1_status",
+            "trade_1_result_r",
+            "trade_2_status",
+            "trade_2_result_r",
+            "combined_r"
+        ]
+
+
+        performance_display_columns = [
+            c
+            for c in performance_display_columns
+            if c in completed_performance.columns
+        ]
+
+
+        st.dataframe(
+            completed_performance[
+                performance_display_columns
+            ],
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "कोई completed trade उपलब्ध नहीं है."
+        )
+
+
+# ============================================================
+# PERFORMANCE PIPELINE STATUS
+# ============================================================
+
+st.success(
+    "✅ Performance Report successfully calculated "
+    "from completed 2-position trades."
+)
+
+
+
 
 # ============================================================
 # AOX CONFIGURATION
