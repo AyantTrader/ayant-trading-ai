@@ -11,10 +11,8 @@ st.set_page_config(
 st.title("📈 AYANT Trading AI — XAUUSD Strategy Tester")
 st.caption("Locked V1 Strategy | America/New_York")
 
-st.divider()
-
 # ============================================================
-# LOCKED V1 RULES
+# LOCKED V1
 # ============================================================
 
 st.subheader("🔒 Locked V1 Rules")
@@ -22,30 +20,35 @@ st.subheader("🔒 Locked V1 Rules")
 st.markdown("""
 **Timezone:** America/New_York
 
-**Execution Times:**
+**Execution setups:**
 - 8:30 AM NY
 - 9:30 AM NY
 - Maximum 1 entry per setup
 - Maximum 2 entries per day
 
-**Valid Pullback — Bullish:**
+**Manipulation:**
+- 8:30 setup → manipulation forming after 8:30
+- 9:30 setup → manipulation forming after 9:30
+- LEFT-SIDE manipulation is confirmed by a valid pullback
+
+**Bullish valid pullback:**
 - C1 = reference candle
 - C2 sweeps C1 Low
 - C2 does NOT close below C1 Low
 - C3 closes above C1 High
 
-**Valid Pullback — Bearish:**
+**Bearish valid pullback:**
 - C1 = reference candle
 - C2 sweeps C1 High
 - C2 does NOT close above C1 High
 - C3 closes below C1 Low
 
-**AOX Entry Levels:**
+**AOX entry levels:**
 - -0.21
 - -0.255
 - -0.29
 
-**Trade Management:**
+**Trade management:**
 - Position 1: SL 5.000 / TP 15.000
 - Position 2: SL 5.000 / TP 20.000
 """)
@@ -53,7 +56,7 @@ st.markdown("""
 st.divider()
 
 # ============================================================
-# CSV UPLOAD
+# CSV
 # ============================================================
 
 st.subheader("📂 XAUUSD 1-Minute Data")
@@ -64,23 +67,19 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is None:
-    st.info("CSV upload करो ताकि backtest शुरू किया जा सके।")
+    st.info("CSV upload करो।")
     st.stop()
-
-# ============================================================
-# LOAD CSV
-# ============================================================
 
 try:
     df = pd.read_csv(uploaded_file)
 except Exception as e:
-    st.error(f"CSV पढ़ने में error आया: {e}")
+    st.error(f"CSV पढ़ने में error: {e}")
     st.stop()
 
 st.success("✅ CSV loaded")
 
 # ============================================================
-# OHLC VALIDATION
+# OHLC
 # ============================================================
 
 required_columns = ["open", "high", "low", "close"]
@@ -96,24 +95,14 @@ if missing_columns:
     )
     st.stop()
 
-st.success("✅ OHLC validation complete")
-
-# ============================================================
-# NUMERIC CONVERSION
-# ============================================================
-
 for col in required_columns:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
-invalid_numeric = df[required_columns].isna().any(axis=1).sum()
+df = df.dropna(
+    subset=required_columns
+).copy()
 
-if invalid_numeric > 0:
-    st.warning(
-        f"⚠️ {invalid_numeric} rows में invalid OHLC values मिलीं। "
-        "इन rows को remove किया जा रहा है।"
-    )
-
-df = df.dropna(subset=required_columns).copy()
+st.success("✅ OHLC validation complete")
 
 # ============================================================
 # DATETIME
@@ -127,10 +116,7 @@ for col in ["datetime", "timestamp", "time", "date"]:
         break
 
 if datetime_column is None:
-    st.error(
-        "❌ Datetime column नहीं मिली। "
-        "Expected: datetime / timestamp / time / date"
-    )
+    st.error("❌ Datetime column नहीं मिली।")
     st.stop()
 
 df["datetime"] = pd.to_datetime(
@@ -139,15 +125,13 @@ df["datetime"] = pd.to_datetime(
     utc=True
 )
 
-invalid_datetime = df["datetime"].isna().sum()
+df = df.dropna(
+    subset=["datetime"]
+).copy()
 
-if invalid_datetime > 0:
-    st.warning(
-        f"⚠️ {invalid_datetime} invalid datetime rows हटाई गईं।"
-    )
-    df = df.dropna(subset=["datetime"]).copy()
-
-df = df.sort_values("datetime").reset_index(drop=True)
+df = df.sort_values(
+    "datetime"
+).reset_index(drop=True)
 
 st.success("✅ Datetime validation complete")
 
@@ -155,107 +139,111 @@ st.success("✅ Datetime validation complete")
 # DATA SUMMARY
 # ============================================================
 
-col1, col2, col3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
 
-with col1:
+with c1:
     st.metric("Rows", f"{len(df):,}")
 
-with col2:
-    if len(df) > 0:
-        st.metric(
-            "Start",
-            df["datetime"].iloc[0].strftime("%Y-%m-%d %H:%M")
-        )
+with c2:
+    st.metric(
+        "Start",
+        df["datetime"].iloc[0].strftime("%Y-%m-%d %H:%M")
+    )
 
-with col3:
-    if len(df) > 0:
-        st.metric(
-            "End",
-            df["datetime"].iloc[-1].strftime("%Y-%m-%d %H:%M")
-        )
+with c3:
+    st.metric(
+        "End",
+        df["datetime"].iloc[-1].strftime("%Y-%m-%d %H:%M")
+    )
 
 st.divider()
 
 # ============================================================
+# CONVERT TO NEW YORK TIME
+# ============================================================
+
+df["ny_time"] = df["datetime"].dt.tz_convert(
+    "America/New_York"
+)
+
+df["ny_date"] = df["ny_time"].dt.date
+df["ny_hour"] = df["ny_time"].dt.hour
+df["ny_minute"] = df["ny_time"].dt.minute
+
+# ============================================================
 # VALID PULLBACK DETECTION
-# VECTORISED — FAST
 # ============================================================
 
 st.subheader("🔎 Valid Pullback Detection")
 
-with st.spinner("Valid Pullbacks detect कर रही हूँ..."):
+c1_low = df["low"].shift(2)
+c1_high = df["high"].shift(2)
 
-    # C1 = 2 candles back
-    # C2 = previous candle
-    # C3 = current candle
+c2_low = df["low"].shift(1)
+c2_high = df["high"].shift(1)
+c2_close = df["close"].shift(1)
 
-    c1_low = df["low"].shift(2)
-    c1_high = df["high"].shift(2)
+c3_close = df["close"]
 
-    c2_low = df["low"].shift(1)
-    c2_high = df["high"].shift(1)
-    c2_close = df["close"].shift(1)
+# Bullish
+bullish_mask = (
+    (c2_low < c1_low) &
+    (c2_close >= c1_low) &
+    (c3_close > c1_high)
+)
 
-    c3_close = df["close"]
-
-    # --------------------------------------------------------
-    # BULLISH VALID PULLBACK
-    # --------------------------------------------------------
-
-    bullish_mask = (
-        (c2_low < c1_low) &
-        (c2_close >= c1_low) &
-        (c3_close > c1_high)
-    )
-
-    # --------------------------------------------------------
-    # BEARISH VALID PULLBACK
-    # --------------------------------------------------------
-
-    bearish_mask = (
-        (c2_high > c1_high) &
-        (c2_close <= c1_high) &
-        (c3_close < c1_low)
-    )
-
-    # --------------------------------------------------------
-    # BUILD SIGNAL TABLE
-    # --------------------------------------------------------
-
-    bullish_signals = pd.DataFrame({
-        "datetime": df.loc[bullish_mask, "datetime"].values,
-        "direction": "BULLISH",
-        "c1_high": c1_high.loc[bullish_mask].values,
-        "c1_low": c1_low.loc[bullish_mask].values,
-        "c2_high": c2_high.loc[bullish_mask].values,
-        "c2_low": c2_low.loc[bullish_mask].values,
-        "c2_close": c2_close.loc[bullish_mask].values,
-        "c3_close": c3_close.loc[bullish_mask].values,
-    })
-
-    bearish_signals = pd.DataFrame({
-        "datetime": df.loc[bearish_mask, "datetime"].values,
-        "direction": "BEARISH",
-        "c1_high": c1_high.loc[bearish_mask].values,
-        "c1_low": c1_low.loc[bearish_mask].values,
-        "c2_high": c2_high.loc[bearish_mask].values,
-        "c2_low": c2_low.loc[bearish_mask].values,
-        "c2_close": c2_close.loc[bearish_mask].values,
-        "c3_close": c3_close.loc[bearish_mask].values,
-    })
-
-    pullbacks = pd.concat(
-        [bullish_signals, bearish_signals],
-        ignore_index=True
-    )
-
-    pullbacks = pullbacks.sort_values(
-        "datetime"
-    ).reset_index(drop=True)
+# Bearish
+bearish_mask = (
+    (c2_high > c1_high) &
+    (c2_close <= c1_high) &
+    (c3_close < c1_low)
+)
 
 # ============================================================
-# PULLBACK METRICS
+# PULLBACK TABLE
 # ============================================================
+
+bullish_signals = pd.DataFrame({
+    "datetime": df.loc[bullish_mask, "datetime"].values,
+    "ny_time": df.loc[bullish_mask, "ny_time"].values,
+    "ny_date": df.loc[bullish_mask, "ny_date"].values,
+    "direction": "BULLISH",
+
+    "c1_high": c1_high.loc[bullish_mask].values,
+    "c1_low": c1_low.loc[bullish_mask].values,
+
+    "c2_high": c2_high.loc[bullish_mask].values,
+    "c2_low": c2_low.loc[bullish_mask].values,
+    "c2_close": c2_close.loc[bullish_mask].values,
+
+    "c3_close": c3_close.loc[bullish_mask].values,
+})
+
+bearish_signals = pd.DataFrame({
+    "datetime": df.loc[bearish_mask, "datetime"].values,
+    "ny_time": df.loc[bearish_mask, "ny_time"].values,
+    "ny_date": df.loc[bearish_mask, "ny_date"].values,
+    "direction": "BEARISH",
+
+    "c1_high": c1_high.loc[bearish_mask].values,
+    "c1_low": c1_low.loc[bearish_mask].values,
+
+    "c2_high": c2_high.loc[bearish_mask].values,
+    "c2_low": c2_low.loc[bearish_mask].values,
+    "c2_close": c2_close.loc[bearish_mask].values,
+
+    "c3_close": c3_close.loc[bullish_mask].values
+        if False else c3_close.loc[bearish_mask].values,
+})
+
+pullbacks = pd.concat(
+    [bullish_signals, bearish_signals],
+    ignore_index=True
+)
+
+pullbacks = pullbacks.sort_values(
+    "datetime"
+).reset_index(drop=True)
 
 total_pullbacks = len(pullbacks)
 bullish_count = int(bullish_mask.sum())
@@ -281,27 +269,192 @@ with p3:
         f"{bearish_count:,}"
     )
 
-if total_pullbacks == 0:
-    st.warning(
-        "⚠️ इस dataset में कोई Valid Pullback नहीं मिला।"
-    )
-else:
-    st.success(
-        f"✅ {total_pullbacks:,} Valid Pullbacks detected"
-    )
+st.success(
+    f"✅ {total_pullbacks:,} Valid Pullbacks detected"
+)
 
-    st.dataframe(
-        pullbacks.head(100),
-        use_container_width=True,
-        hide_index=True
-    )
+# ============================================================
+# SETUP DETECTION
+# ============================================================
 
 st.divider()
+st.subheader("⏰ 8:30 / 9:30 NY Setup Detection")
+
+setup_mask = (
+    ((df["ny_hour"] == 8) & (df["ny_minute"] == 30)) |
+    ((df["ny_hour"] == 9) & (df["ny_minute"] == 30))
+)
+
+setups = df.loc[
+    setup_mask,
+    [
+        "datetime",
+        "ny_time",
+        "ny_date",
+        "open",
+        "high",
+        "low",
+        "close"
+    ]
+].copy()
+
+setups["setup_time"] = setups["ny_time"].dt.strftime("%H:%M")
+
+st.metric(
+    "Total 8:30 / 9:30 Setup Candles",
+    f"{len(setups):,}"
+)
+
+st.dataframe(
+    setups.head(100),
+    use_container_width=True,
+    hide_index=True
+)
 
 # ============================================================
-# AOX LEVELS
+# ASSOCIATE VALID PULLBACK WITH SETUP
 # ============================================================
 
+st.divider()
+st.subheader("🔗 Setup → After-Setup Valid Pullback")
+
+if len(setups) == 0:
+    st.warning(
+        "⚠️ Dataset में 8:30 या 9:30 NY setup candle नहीं मिली।"
+    )
+else:
+
+    # --------------------------------------------------------
+    # For each setup, find valid pullbacks AFTER that setup
+    # on the same NY calendar date.
+    #
+    # IMPORTANT:
+    # We do NOT impose an artificial fixed time window.
+    # The exact LEFT-SIDE selection will be handled separately.
+    # --------------------------------------------------------
+
+    setup_records = []
+
+    for _, setup in setups.iterrows():
+
+        setup_date = setup["ny_date"]
+        setup_dt = setup["datetime"]
+
+        candidates = pullbacks[
+            (pullbacks["ny_date"] == setup_date) &
+            (pullbacks["datetime"] > setup_dt)
+        ]
+
+        if len(candidates) == 0:
+            continue
+
+        first_candidate = candidates.iloc[0]
+
+        setup_records.append({
+            "setup_datetime": setup_dt,
+            "setup_ny_time": setup["ny_time"],
+            "setup_type": setup["setup_time"],
+
+            "pullback_datetime":
+                first_candidate["datetime"],
+
+            "pullback_ny_time":
+                first_candidate["ny_time"],
+
+            "direction":
+                first_candidate["direction"],
+
+            "c1_high":
+                first_candidate["c1_high"],
+
+            "c1_low":
+                first_candidate["c1_low"],
+
+            "c2_high":
+                first_candidate["c2_high"],
+
+            "c2_low":
+                first_candidate["c2_low"],
+
+            "c2_close":
+                first_candidate["c2_close"],
+
+            "c3_close":
+                first_candidate["c3_close"]
+        })
+
+    setup_pullbacks = pd.DataFrame(
+        setup_records
+    )
+
+    if len(setup_pullbacks) == 0:
+
+        st.warning(
+            "⚠️ किसी setup के बाद same NY day में "
+            "valid pullback नहीं मिला।"
+        )
+
+    else:
+
+        # ----------------------------------------------------
+        # Prevent duplicate setup assignment
+        # ----------------------------------------------------
+
+        setup_pullbacks = setup_pullbacks.sort_values(
+            "setup_datetime"
+        ).reset_index(drop=True)
+
+        st.success(
+            f"✅ {len(setup_pullbacks):,} setup → "
+            "after-setup pullback candidates found"
+        )
+
+        s1, s2, s3 = st.columns(3)
+
+        with s1:
+            st.metric(
+                "8:30 Candidates",
+                int(
+                    (
+                        setup_pullbacks["setup_type"] == "08:30"
+                    ).sum()
+                )
+            )
+
+        with s2:
+            st.metric(
+                "9:30 Candidates",
+                int(
+                    (
+                        setup_pullbacks["setup_type"] == "09:30"
+                    ).sum()
+                )
+            )
+
+        with s3:
+            st.metric(
+                "Bullish / Bearish",
+                f"{(setup_pullbacks['direction'] == 'BULLISH').sum()} / "
+                f"{(setup_pullbacks['direction'] == 'BEARISH').sum()}"
+            )
+
+        st.dataframe(
+            setup_pullbacks.head(100),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.info(
+            "ℹ️ यह अभी candidate association है। "
+            "Fixed time-window या मनगढ़ंत LEFT-SIDE rule नहीं लगाया गया है। "
+            "अगले चरण में confirmed manipulation leg पर AOX calculation होगी।"
+        )
+
+# ============================================================
+# AOX CONFIGURATION
+# ============================================================
+
+st.divider()
 st.subheader("📐 AOX Configuration")
 
 AOX_ENTRY_LEVELS = [
@@ -316,22 +469,21 @@ AOX_REFERENCE_LEVELS = [
     2.64
 ]
 
-col_a, col_b = st.columns(2)
+a1, a2 = st.columns(2)
 
-with col_a:
-    st.write("**Entry Levels**")
+with a1:
+    st.write("**AOX Entry Levels**")
     st.write(AOX_ENTRY_LEVELS)
 
-with col_b:
-    st.write("**Reference / Target Levels**")
+with a2:
+    st.write("**AOX Reference Levels**")
     st.write(AOX_REFERENCE_LEVELS)
-
-st.divider()
 
 # ============================================================
 # TRADE MANAGEMENT
 # ============================================================
 
+st.divider()
 st.subheader("🎯 Trade Management")
 
 t1, t2 = st.columns(2)
@@ -340,20 +492,19 @@ with t1:
     st.write("**Position 1**")
     st.write("SL = 5.000")
     st.write("TP = 15.000")
-    st.write("Risk/Reward = 1:3")
+    st.write("Result = +3R at TP / -1R at SL")
 
 with t2:
     st.write("**Position 2**")
     st.write("SL = 5.000")
     st.write("TP = 20.000")
-    st.write("Risk/Reward = 1:4")
-
-st.divider()
+    st.write("Result = +4R at TP / -1R at SL")
 
 # ============================================================
 # BACKTEST BUTTON
 # ============================================================
 
+st.divider()
 st.subheader("🚀 V1 Backtest")
 
 run_backtest = st.button(
@@ -365,21 +516,25 @@ run_backtest = st.button(
 if run_backtest:
 
     st.info(
-        "V1 backtest engine अभी development में है। "
-        "Valid Pullback Detection module successfully तैयार है।"
+        "Backtest engine अभी पूरी तरह active नहीं है। "
+        "Current modules successfully loaded हैं।"
     )
 
     st.write("### Current Pipeline")
 
     st.success("✅ CSV Data")
-    st.success("✅ Datetime / OHLC Validation")
-    st.success("✅ Vectorized Valid Pullback Detection")
-    st.warning("⏳ LEFT-SIDE Manipulation Leg Detection — Next Module")
-    st.warning("⏳ AOX Calculation — Next Module")
-    st.warning("⏳ AOX Entry Detection — Next Module")
-    st.warning("⏳ SL / TP Simulation — Next Module")
-    st.warning("⏳ Performance Report — Next Module")
+    st.success("✅ OHLC / Datetime Validation")
+    st.success("✅ Valid Pullback Detection")
+    st.success("✅ 8:30 / 9:30 Setup Detection")
+    st.success("✅ Setup → After-Setup Pullback Association")
 
-st.caption(
-    "AYANT Trading AI — V1 Strategy Tester"
-)
+    st.warning(
+        "⏳ LEFT-SIDE Manipulation Leg — exact objective rule"
+    )
+
+    st.warning("⏳ AOX Fibonacci Calculation")
+    st.warning("⏳ First AOX Entry Detection")
+    st.warning("⏳ SL / TP Simulation")
+    st.warning("⏳ Performance Report")
+
+st.caption("AYANT Trading AI — V1 Strategy Tester")
