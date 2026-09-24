@@ -12,7 +12,7 @@ st.title("📈 AYANT Trading AI — XAUUSD Strategy Tester")
 st.caption("Locked V1 Strategy | America/New_York")
 
 # ============================================================
-# LOCKED V1
+# LOCKED V1 RULES
 # ============================================================
 
 st.subheader("🔒 Locked V1 Rules")
@@ -56,7 +56,7 @@ st.markdown("""
 st.divider()
 
 # ============================================================
-# CSV
+# CSV UPLOAD
 # ============================================================
 
 st.subheader("📂 XAUUSD 1-Minute Data")
@@ -79,7 +79,7 @@ except Exception as e:
 st.success("✅ CSV loaded")
 
 # ============================================================
-# OHLC
+# OHLC VALIDATION
 # ============================================================
 
 required_columns = ["open", "high", "low", "close"]
@@ -96,7 +96,10 @@ if missing_columns:
     st.stop()
 
 for col in required_columns:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
+    df[col] = pd.to_numeric(
+        df[col],
+        errors="coerce"
+    )
 
 df = df.dropna(
     subset=required_columns
@@ -105,7 +108,7 @@ df = df.dropna(
 st.success("✅ OHLC validation complete")
 
 # ============================================================
-# DATETIME
+# DATETIME VALIDATION
 # ============================================================
 
 datetime_column = None
@@ -119,6 +122,7 @@ if datetime_column is None:
     st.error("❌ Datetime column नहीं मिली।")
     st.stop()
 
+# Always convert to UTC-aware datetime
 df["datetime"] = pd.to_datetime(
     df[datetime_column],
     errors="coerce",
@@ -142,24 +146,31 @@ st.success("✅ Datetime validation complete")
 c1, c2, c3 = st.columns(3)
 
 with c1:
-    st.metric("Rows", f"{len(df):,}")
+    st.metric(
+        "Rows",
+        f"{len(df):,}"
+    )
 
 with c2:
     st.metric(
         "Start",
-        df["datetime"].iloc[0].strftime("%Y-%m-%d %H:%M")
+        df["datetime"].iloc[0].strftime(
+            "%Y-%m-%d %H:%M"
+        )
     )
 
 with c3:
     st.metric(
         "End",
-        df["datetime"].iloc[-1].strftime("%Y-%m-%d %H:%M")
+        df["datetime"].iloc[-1].strftime(
+            "%Y-%m-%d %H:%M"
+        )
     )
 
 st.divider()
 
 # ============================================================
-# CONVERT TO NEW YORK TIME
+# NEW YORK TIME
 # ============================================================
 
 df["ny_time"] = df["datetime"].dt.tz_convert(
@@ -176,6 +187,10 @@ df["ny_minute"] = df["ny_time"].dt.minute
 
 st.subheader("🔎 Valid Pullback Detection")
 
+# C1 = 2 candles back
+# C2 = previous candle
+# C3 = current candle
+
 c1_low = df["low"].shift(2)
 c1_high = df["high"].shift(2)
 
@@ -185,14 +200,20 @@ c2_close = df["close"].shift(1)
 
 c3_close = df["close"]
 
-# Bullish
+# ------------------------------------------------------------
+# BULLISH
+# ------------------------------------------------------------
+
 bullish_mask = (
     (c2_low < c1_low) &
     (c2_close >= c1_low) &
     (c3_close > c1_high)
 )
 
-# Bearish
+# ------------------------------------------------------------
+# BEARISH
+# ------------------------------------------------------------
+
 bearish_mask = (
     (c2_high > c1_high) &
     (c2_close <= c1_high) &
@@ -204,40 +225,96 @@ bearish_mask = (
 # ============================================================
 
 bullish_signals = pd.DataFrame({
-    "datetime": df.loc[bullish_mask, "datetime"].values,
-    "ny_time": df.loc[bullish_mask, "ny_time"].values,
-    "ny_date": df.loc[bullish_mask, "ny_date"].values,
+    "datetime": df.loc[
+        bullish_mask,
+        "datetime"
+    ].values,
+
+    "ny_time": df.loc[
+        bullish_mask,
+        "ny_time"
+    ].values,
+
+    "ny_date": df.loc[
+        bullish_mask,
+        "ny_date"
+    ].values,
+
     "direction": "BULLISH",
 
-    "c1_high": c1_high.loc[bullish_mask].values,
-    "c1_low": c1_low.loc[bullish_mask].values,
+    "c1_high": c1_high.loc[
+        bullish_mask
+    ].values,
 
-    "c2_high": c2_high.loc[bullish_mask].values,
-    "c2_low": c2_low.loc[bullish_mask].values,
-    "c2_close": c2_close.loc[bullish_mask].values,
+    "c1_low": c1_low.loc[
+        bullish_mask
+    ].values,
 
-    "c3_close": c3_close.loc[bullish_mask].values,
+    "c2_high": c2_high.loc[
+        bullish_mask
+    ].values,
+
+    "c2_low": c2_low.loc[
+        bullish_mask
+    ].values,
+
+    "c2_close": c2_close.loc[
+        bullish_mask
+    ].values,
+
+    "c3_close": c3_close.loc[
+        bullish_mask
+    ].values
 })
 
 bearish_signals = pd.DataFrame({
-    "datetime": df.loc[bearish_mask, "datetime"].values,
-    "ny_time": df.loc[bearish_mask, "ny_time"].values,
-    "ny_date": df.loc[bearish_mask, "ny_date"].values,
+    "datetime": df.loc[
+        bearish_mask,
+        "datetime"
+    ].values,
+
+    "ny_time": df.loc[
+        bearish_mask,
+        "ny_time"
+    ].values,
+
+    "ny_date": df.loc[
+        bearish_mask,
+        "ny_date"
+    ].values,
+
     "direction": "BEARISH",
 
-    "c1_high": c1_high.loc[bearish_mask].values,
-    "c1_low": c1_low.loc[bearish_mask].values,
+    "c1_high": c1_high.loc[
+        bearish_mask
+    ].values,
 
-    "c2_high": c2_high.loc[bearish_mask].values,
-    "c2_low": c2_low.loc[bearish_mask].values,
-    "c2_close": c2_close.loc[bearish_mask].values,
+    "c1_low": c1_low.loc[
+        bearish_mask
+    ].values,
 
-    "c3_close": c3_close.loc[bullish_mask].values
-        if False else c3_close.loc[bearish_mask].values,
+    "c2_high": c2_high.loc[
+        bearish_mask
+    ].values,
+
+    "c2_low": c2_low.loc[
+        bearish_mask
+    ].values,
+
+    "c2_close": c2_close.loc[
+        bearish_mask
+    ].values,
+
+    "c3_close": c3_close.loc[
+        bearish_mask
+    ].values
 })
 
 pullbacks = pd.concat(
-    [bullish_signals, bearish_signals],
+    [
+        bullish_signals,
+        bearish_signals
+    ],
     ignore_index=True
 )
 
@@ -246,8 +323,12 @@ pullbacks = pullbacks.sort_values(
 ).reset_index(drop=True)
 
 total_pullbacks = len(pullbacks)
-bullish_count = int(bullish_mask.sum())
-bearish_count = int(bearish_mask.sum())
+bullish_count = int(
+    bullish_mask.sum()
+)
+bearish_count = int(
+    bearish_mask.sum()
+)
 
 p1, p2, p3 = st.columns(3)
 
@@ -273,16 +354,32 @@ st.success(
     f"✅ {total_pullbacks:,} Valid Pullbacks detected"
 )
 
+st.dataframe(
+    pullbacks.head(100),
+    use_container_width=True,
+    hide_index=True
+)
+
 # ============================================================
 # SETUP DETECTION
 # ============================================================
 
 st.divider()
-st.subheader("⏰ 8:30 / 9:30 NY Setup Detection")
+
+st.subheader(
+    "⏰ 8:30 / 9:30 NY Setup Detection"
+)
 
 setup_mask = (
-    ((df["ny_hour"] == 8) & (df["ny_minute"] == 30)) |
-    ((df["ny_hour"] == 9) & (df["ny_minute"] == 30))
+    (
+        (df["ny_hour"] == 8) &
+        (df["ny_minute"] == 30)
+    )
+    |
+    (
+        (df["ny_hour"] == 9) &
+        (df["ny_minute"] == 30)
+    )
 )
 
 setups = df.loc[
@@ -298,7 +395,10 @@ setups = df.loc[
     ]
 ].copy()
 
-setups["setup_time"] = setups["ny_time"].dt.strftime("%H:%M")
+setups["setup_time"] = (
+    setups["ny_time"]
+    .dt.strftime("%H:%M")
+)
 
 st.metric(
     "Total 8:30 / 9:30 Setup Candles",
@@ -312,48 +412,58 @@ st.dataframe(
 )
 
 # ============================================================
-# ASSOCIATE VALID PULLBACK WITH SETUP
+# SETUP → AFTER-SETUP PULLBACK
 # ============================================================
 
 st.divider()
-st.subheader("🔗 Setup → After-Setup Valid Pullback")
+
+st.subheader(
+    "🔗 Setup → After-Setup Valid Pullback"
+)
 
 if len(setups) == 0:
+
     st.warning(
         "⚠️ Dataset में 8:30 या 9:30 NY setup candle नहीं मिली।"
     )
-else:
 
-    # --------------------------------------------------------
-    # For each setup, find valid pullbacks AFTER that setup
-    # on the same NY calendar date.
-    #
-    # IMPORTANT:
-    # We do NOT impose an artificial fixed time window.
-    # The exact LEFT-SIDE selection will be handled separately.
-    # --------------------------------------------------------
+else:
 
     setup_records = []
 
     for _, setup in setups.iterrows():
 
         setup_date = setup["ny_date"]
+
         setup_dt = setup["datetime"]
 
+        # IMPORTANT:
+        # setup_dt is UTC-aware.
+        # pullbacks["datetime"] is also UTC-aware.
+        #
+        # Therefore comparison is timezone compatible.
+
         candidates = pullbacks[
-            (pullbacks["ny_date"] == setup_date) &
+            (pullbacks["ny_date"] == setup_date)
+            &
             (pullbacks["datetime"] > setup_dt)
         ]
 
         if len(candidates) == 0:
             continue
 
+        # First valid pullback after setup
         first_candidate = candidates.iloc[0]
 
         setup_records.append({
-            "setup_datetime": setup_dt,
-            "setup_ny_time": setup["ny_time"],
-            "setup_type": setup["setup_time"],
+            "setup_datetime":
+                setup_dt,
+
+            "setup_ny_time":
+                setup["ny_time"],
+
+            "setup_type":
+                setup["setup_time"],
 
             "pullback_datetime":
                 first_candidate["datetime"],
@@ -396,46 +506,63 @@ else:
 
     else:
 
-        # ----------------------------------------------------
-        # Prevent duplicate setup assignment
-        # ----------------------------------------------------
-
-        setup_pullbacks = setup_pullbacks.sort_values(
-            "setup_datetime"
-        ).reset_index(drop=True)
+        setup_pullbacks = (
+            setup_pullbacks
+            .sort_values("setup_datetime")
+            .reset_index(drop=True)
+        )
 
         st.success(
-            f"✅ {len(setup_pullbacks):,} setup → "
-            "after-setup pullback candidates found"
+            f"✅ {len(setup_pullbacks):,} "
+            "setup → after-setup pullback candidates found"
         )
 
         s1, s2, s3 = st.columns(3)
 
         with s1:
+            count_830 = int(
+                (
+                    setup_pullbacks["setup_type"]
+                    == "08:30"
+                ).sum()
+            )
+
             st.metric(
                 "8:30 Candidates",
-                int(
-                    (
-                        setup_pullbacks["setup_type"] == "08:30"
-                    ).sum()
-                )
+                count_830
             )
 
         with s2:
+            count_930 = int(
+                (
+                    setup_pullbacks["setup_type"]
+                    == "09:30"
+                ).sum()
+            )
+
             st.metric(
                 "9:30 Candidates",
-                int(
-                    (
-                        setup_pullbacks["setup_type"] == "09:30"
-                    ).sum()
-                )
+                count_930
             )
 
         with s3:
+            bull = int(
+                (
+                    setup_pullbacks["direction"]
+                    == "BULLISH"
+                ).sum()
+            )
+
+            bear = int(
+                (
+                    setup_pullbacks["direction"]
+                    == "BEARISH"
+                ).sum()
+            )
+
             st.metric(
                 "Bullish / Bearish",
-                f"{(setup_pullbacks['direction'] == 'BULLISH').sum()} / "
-                f"{(setup_pullbacks['direction'] == 'BEARISH').sum()}"
+                f"{bull} / {bear}"
             )
 
         st.dataframe(
@@ -446,15 +573,16 @@ else:
 
         st.info(
             "ℹ️ यह अभी candidate association है। "
-            "Fixed time-window या मनगढ़ंत LEFT-SIDE rule नहीं लगाया गया है। "
+            "कोई artificial fixed time-window नहीं लगाया गया है। "
             "अगले चरण में confirmed manipulation leg पर AOX calculation होगी।"
         )
 
 # ============================================================
-# AOX CONFIGURATION
+# AOX
 # ============================================================
 
 st.divider()
+
 st.subheader("📐 AOX Configuration")
 
 AOX_ENTRY_LEVELS = [
@@ -484,6 +612,7 @@ with a2:
 # ============================================================
 
 st.divider()
+
 st.subheader("🎯 Trade Management")
 
 t1, t2 = st.columns(2)
@@ -505,6 +634,7 @@ with t2:
 # ============================================================
 
 st.divider()
+
 st.subheader("🚀 V1 Backtest")
 
 run_backtest = st.button(
@@ -516,8 +646,7 @@ run_backtest = st.button(
 if run_backtest:
 
     st.info(
-        "Backtest engine अभी पूरी तरह active नहीं है। "
-        "Current modules successfully loaded हैं।"
+        "Complete V1 backtest engine अभी development में है।"
     )
 
     st.write("### Current Pipeline")
@@ -532,9 +661,22 @@ if run_backtest:
         "⏳ LEFT-SIDE Manipulation Leg — exact objective rule"
     )
 
-    st.warning("⏳ AOX Fibonacci Calculation")
-    st.warning("⏳ First AOX Entry Detection")
-    st.warning("⏳ SL / TP Simulation")
-    st.warning("⏳ Performance Report")
+    st.warning(
+        "⏳ AOX Fibonacci Calculation"
+    )
 
-st.caption("AYANT Trading AI — V1 Strategy Tester")
+    st.warning(
+        "⏳ First AOX Entry Detection"
+    )
+
+    st.warning(
+        "⏳ SL / TP Simulation"
+    )
+
+    st.warning(
+        "⏳ Performance Report"
+    )
+
+st.caption(
+    "AYANT Trading AI — V1 Strategy Tester"
+)
